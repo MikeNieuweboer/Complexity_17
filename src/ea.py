@@ -13,12 +13,15 @@ the Neural CA looks like a circle.
 
 import logging
 import multiprocessing as mp
-import pickle
+from collections.abc import Callable
 from enum import Enum
+from itertools import product
 
 import nevergrad as ng
 import numpy as np
 import numpy.typing as npt
+
+from grid import Grid
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +30,23 @@ class EAType(Enum):
     """Defines the different types of fitness evaluation."""
 
     FULL_CIRCLE = 1
+
+
+class FitnessFunctions:
+    @staticmethod
+    def full_circle(grid: npt.NDArray, *, radius: float = 10) -> float:
+        shape = grid.shape
+        center = (shape[1] / 2, shape[0] / 2)
+
+        def circle(x: float, y: float):
+            return x * x + y * y - radius * radius
+
+        loss = 0
+        for x, y in product(range(shape[1]), range(shape[0])):
+            result = circle(x - center[0], y - center[1])
+            active = True  # TODO: True if alive, False otherwise
+            loss += 1 if result >= 0 == active else 0
+        return loss
 
 
 class EA:
@@ -43,17 +63,28 @@ class EA:
         """TODO: Docstring"""
         logging.basicConfig(level=logging.INFO)
 
+        self._ea_type = ea_type
+        self._pop_count = pop_count
+        self._gen_count = gen_count
+
+        self._gen = np.random.Generator(np.random.PCG64())
+
+        self._mp = mp
+
+        self._grid = None
+
         # Paper used inputs->128->ReLu->16=delta vector
         weight_shapes = [
             (inputs, 64),
-            (64, 16),
+            (64, outputs),
         ]
 
         # Create the optimizer
         param = ng.p.Instrumentation(
-            *[ng.p.Array(shape=weight, mutable_sigma=True) for weight in weight_shapes]
+            *[ng.p.Array(shape=weight, mutable_sigma=True) for weight in weight_shapes],
         )
-        optimizer = ng.optimizers.CMA(
+
+        self._optimizer = ng.optimizers.CMA(
             param,
             num_workers=pop_count,
             budget=pop_count * gen_count,
@@ -74,8 +105,40 @@ class EA:
         #     for name, val in attrs.items():
         #         if name in {"budget", "num_workers"}:
         #             continue
-        #         optimizer.__setattr__(name, val)  # noqa: PLC2801
+        #         optimizer.__setattr__(name, val)
         pass
 
-    def _step_ca(self) -> npt.NDArray:
-        return np.zeros((1, 1, 1))
+    def _basic_simulation(self, fitness: Callable) -> float:
+        if self._grid is None:
+            logger.error("No grid configured for basic simulation")
+        # Low and high taken from paper
+        low = 64
+        high = 96
+
+        steps = int(self._gen.integers(low, high))
+        self._grid.simulate(steps)
+        return fitness(self._grid.grid)
+
+    def _evolve_full_circle(self, individual: object) -> float:
+        self._grid = Grid(40, 40)
+        return self._basic_simulation(FitnessFunctions.full_circle)
+
+    def evolve(self) -> None:
+        process_count = self._pop_count if self._mp else 1
+
+        function = None
+        match self._ea_type:
+            case EAType.FULL_CIRCLE:
+                function = self._evolve_full_circle
+
+        if function is None:
+            logger.error("Current evolution type is not supported.")
+            return
+
+        with mp.Pool(process_count) as pool:
+            for gen in range(self._gen_count):
+                logger.info("Starting generation %d", gen)
+                population = [self._optimizer.ask() for _ in range(self._pop_count)]
+                results = pool.map(function, population)
+                for individual, loss in zip(population, results, strict=True):
+                    self._optimizer.tell(individual, loss)
