@@ -55,7 +55,7 @@ class Grid:
         self._grid = self._grid + state_change * rand_mask
 
         ### Alive Masking
-        #
+        # Allows wrapped alive masking with by multithreading on GPU
         alpha = self._grid[:, :, 3:4]          # (H, W, 1)
         alpha = alpha.permute(2, 0, 1).unsqueeze(0)  # (1, 1, H, W)
         alpha = F.pad(alpha, (1, 1, 1, 1), mode="circular")
@@ -73,7 +73,7 @@ class Grid:
     ):
         """Run the grid CA for a fixed number of steps."""
         for t in range(steps):
-            state = grid.step(update_prob=update_prob, masking_th=masking_th)
+            state = self.step(update_prob=update_prob, masking_th=masking_th)
             print(f"Step ({t}/{steps})\n")
         return state
 
