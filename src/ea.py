@@ -11,13 +11,10 @@ the Neural CA. This fitness can be dependent on several factors, such as how muc
 the Neural CA looks like a circle.
 """
 
-from contextlib import closing
 import logging
-import multiprocessing as mp
 from collections.abc import Callable
 from enum import Enum
 from itertools import product
-from multiprocessing.pool import Pool
 from pathlib import Path
 
 # import cProfile
@@ -39,11 +36,19 @@ file_handler = logging.FileHandler(log_dir / "ea.log", mode="a", encoding="utf-8
 logger.addHandler(file_handler)
 
 
-class EAType(Enum):
+class FitnessType(Enum):
     """Defines the different types of fitness evaluation."""
 
     TESTING = 0
     FULL_CIRCLE = 1
+
+
+class EAType(Enum):
+    """Defines the different modes of learning for the EA."""
+
+    BASIC = 0
+    PERSISTENT = 1
+    REGENERATING = 2
 
 
 class FitnessFunctions:
@@ -68,23 +73,24 @@ class EA:
         self,
         inputs: int,
         outputs: int,
-        ea_type: EAType,
+        fitness_type: FitnessType,
+        ea_type: EAType = EAType.BASIC,
         *,
         pop_count: int = 50,
         gen_count: int = 500,
-        mp: bool = False,
+        grid_size: int = 50,
     ) -> None:
         """TODO: Docstring"""
         self._gen = np.random.Generator(np.random.PCG64())
-        self._mp = mp
 
+        self._fitness_type = fitness_type
         self._ea_type = ea_type
         self._pop_count = pop_count
         self._gen_count = gen_count
 
-        self._grid = None
+        self._grid_size = grid_size
 
-        self.fitnesses = []
+        self._fitnesses = []
 
         self._init_optimizer(inputs, outputs)
 
@@ -100,8 +106,12 @@ class EA:
             *[ng.p.Array(shape=weight, mutable_sigma=True) for weight in weight_shapes],
         )
 
-        # TODO: Proper initialization
-        self._optimizer = ng.optimizers.CMA(
+        param.value = (
+            tuple(self._gen.uniform(-5, 5, shape) for shape in weight_shapes),
+            {},
+        )
+
+        self._optimizer = ng.optimizers.registry["CMAstd"](
             param,
             num_workers=self._pop_count,
             budget=self._pop_count * self._gen_count,
@@ -129,50 +139,56 @@ class EA:
         pass
 
     def _evolve_testing(self, individual: Parameter) -> float:
-        return 1
         return np.sum(np.abs(individual.args[0] - 1))
 
-    def _basic_simulation(self, fitness: Callable) -> float:
-        if self._grid is None:
-            logger.error("No grid configured for basic simulation")
+    def _basic_simulation(self, grid: Grid, fitness: Callable) -> float:
         # Low and high taken from paper
         low = 64
         high = 96
 
         steps = int(self._gen.integers(low, high))
-        self._grid.simulate(steps)
+        grid.simulate(steps)
         return fitness(self._grid.grid)
 
-    def _evolve_full_circle(self, individual: Parameter) -> float:
-        self._grid = Grid(40, 40)
-        return self._basic_simulation(FitnessFunctions.full_circle)
+    def _evolve_full_circle(self, grid: Grid) -> float:
+        return self._basic_simulation(grid, FitnessFunctions.full_circle)
 
-    def _evolve_step(self, gen: int, function: Callable) -> None:
-        logger.info("Starting generation %d", gen)
-        self._population = [self._optimizer.ask() for _ in range(self._pop_count)]
-        if self._mp:
-            with closing(mp.Pool(16)) as pool:
-                results = pool.map(function, [1 for _ in range(self._pop_count)])
-        else:
-            results = list(map(function, self._population))
+    def _evolve_step_basic(self, generation: int, function: Callable) -> None:
+        # Reproduction
+        population = [self._optimizer.ask() for _ in range(self._pop_count)]
+        logger.info("Starting generation %d", generation)
+        results = list(
+            map(
+                function,
+                (Grid(50, 50, individual) for individual in population),
+            ),
+        )
+
         best = max(results)
         mean = np.mean(results)
         std = np.std(results)
+        self._fitnesses.append(results)
+
         logger.info(
             "Finished generation with best: %f, mean: %f, std: %f",
             best,
             mean,
             std,
         )
-        for individual, loss in zip(self._population, results, strict=True):
+
+        # Survivor selection
+        for individual, loss in zip(population, results, strict=True):
             self._optimizer.tell(individual, loss)
+
+    def _evolve_step_persistent(self, generation: int, function: Callable):
+        pass
 
     def evolve(self) -> None:
         function = None
-        match self._ea_type:
-            case EAType.TESTING:
+        match self._fitness_type:
+            case FitnessType.TESTING:
                 function = self._evolve_testing
-            case EAType.FULL_CIRCLE:
+            case FitnessType.FULL_CIRCLE:
                 function = self._evolve_full_circle
 
         if function is None:
@@ -180,17 +196,16 @@ class EA:
             return
 
         for gen in trange(self._gen_count):
-            self._evolve_step(gen, function)
+            match self._ea_type:
+                case EAType.BASIC:
+                    self._evolve_step_basic(gen, function)
+                case EAType.PERSISTENT:
+                    self._evolve_step_persistent(gen, function)
 
 
 def main():
-    ea = EA(48, 16, EAType.TESTING, mp=True)
-    # profiler = cProfile.Profile()
-    # profiler.enable()
+    ea = EA(48, 16, FitnessType.TESTING)
     ea.evolve()
-    # profiler.disable()
-    # stats = pstats.Stats(profiler).sort_stats("cumtime")
-    # stats.print_stats()
 
 
 if __name__ == "__main__":
