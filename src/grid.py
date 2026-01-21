@@ -10,6 +10,29 @@ class Grid:
         self.num_channels = num_channels
 
         self.device = device if device is not None else torch.device("cpu")
+from __future__ import annotations
+
+import numpy as np
+import numpy.typing as npt
+
+
+class Grid:
+    def __init__(
+        self, width: int, height: int, *, weights: tuple[npt.NDArray, ...] | None = None
+    ) -> None:
+        self._width = width
+        self._height = height
+        self._grid = np.zeros((height, width))
+        if weights is None:
+            self._weights = (np.zeros((10, 10)), np.zeros((10, 10)))
+        else:
+            self._weights = weights
+
+    def set_cell_state(self, x: int, y: int, val):
+        pass
+
+    def set_state(self, new_state: npt.NDArray) -> None:
+        pass
 
         # Grid state: (H, W, C)
         self._grid = torch.zeros(
@@ -78,6 +101,15 @@ class Grid:
         return state
 
 
+    def set_weights(self, new_weights: tuple[npt.NDArray, ...]) -> None:
+        self._weights = new_weights
+
+    def deepcopy(self) -> Grid:
+        """More performant alternative to the built in deepcopy."""
+        copy = Grid(self._width, self._height)
+        copy.set_state(self._grid.copy())
+        return copy
+
     @property
     def grid(self):
         return self._grid
@@ -109,3 +141,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+    @property
+    def weights(self) -> tuple[npt.NDArray, ...]:
+        return self._weights
