@@ -11,6 +11,7 @@ the Neural CA. This fitness can be dependent on several factors, such as how muc
 the Neural CA looks like a circle.
 """
 
+from contextlib import closing
 import logging
 import multiprocessing as mp
 from collections.abc import Callable
@@ -146,12 +147,12 @@ class EA:
         self._grid = Grid(40, 40)
         return self._basic_simulation(FitnessFunctions.full_circle)
 
-    def _evolve_step(self, gen: int, function: Callable, pool: Pool | None) -> None:
+    def _evolve_step(self, gen: int, function: Callable) -> None:
         logger.info("Starting generation %d", gen)
-        # self._population = [self._optimizer.ask() for _ in range(self._pop_count)]
-        self._population = [1 for _ in range(self._pop_count)]
-        if pool:
-            results = pool.map(function, self._population)
+        self._population = [self._optimizer.ask() for _ in range(self._pop_count)]
+        if self._mp:
+            with closing(mp.Pool(16)) as pool:
+                results = pool.map(function, [1 for _ in range(self._pop_count)])
         else:
             results = list(map(function, self._population))
         best = max(results)
@@ -163,8 +164,8 @@ class EA:
             mean,
             std,
         )
-        # for individual, loss in zip(self._population, results, strict=True):
-        #     self._optimizer.tell(individual, loss)
+        for individual, loss in zip(self._population, results, strict=True):
+            self._optimizer.tell(individual, loss)
 
     def evolve(self) -> None:
         function = None
@@ -178,13 +179,8 @@ class EA:
             logger.error("Current evolution type is not supported.")
             return
 
-        if self._mp:
-            with mp.Pool(16) as pool:
-                for gen in trange(self._gen_count):
-                    self._evolve_step(gen, function, pool)
-        else:
-            for gen in range(self._gen_count):
-                self._evolve_step(gen, function, None)
+        for gen in trange(self._gen_count):
+            self._evolve_step(gen, function)
 
 
 def main():
