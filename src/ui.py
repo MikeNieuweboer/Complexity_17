@@ -16,20 +16,11 @@ def test_CA(grid:np.ndarray) -> np.ndarray:
     return new_grid
 
 
-class Color(QtWidgets.QWidget):
-    def __init__(self, color):
-        super().__init__()
-        self.setAutoFillBackground(True)
-
-        palette = self.palette()
-        palette.setColor(QtGui.QPalette.ColorRole.Window, QtGui.QColor(color))
-        self.setPalette(palette)
-
-
 class ToolBar(QtWidgets.QWidget):
     """ 
     The toolbar widget containing controlls for viewing and updating the grid.
     """
+    #signals for transmitting button and slider data
     step_requested = QtCore.pyqtSignal(bool)
     update_toggle = QtCore.pyqtSignal(bool)
     reset_requested = QtCore.pyqtSignal(bool)
@@ -38,11 +29,11 @@ class ToolBar(QtWidgets.QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setFixedSize(QtCore.QSize(150, 300))
 
         # setting up buttons
         self.playpause_button = QtWidgets.QPushButton("Play")
         self.playpause_button.setCheckable(True)
-
 
         self.step_button = QtWidgets.QPushButton("Step")
         self.reset_button = QtWidgets.QPushButton("Reset")
@@ -59,7 +50,6 @@ class ToolBar(QtWidgets.QWidget):
         self.erase_slider.setMaximum(6)
         self.erase_slider.setValue(1)
 
-        self.setFixedSize(QtCore.QSize(150, 300))
 
         # connecting buttons to functions
         self.playpause_button.toggled.connect(self.play_pause_toggled)
@@ -68,7 +58,7 @@ class ToolBar(QtWidgets.QWidget):
         self.speed_slider.valueChanged.connect(self.change_sim_speed)
         self.erase_slider.valueChanged.connect(self.change_erase_size)
 
-        # layout
+        # vertical layout of the toolbar buttons and sliders
         layout = QtWidgets.QVBoxLayout()
         layout.addWidget(self.playpause_button)
         layout.addWidget(self.step_button)
@@ -78,6 +68,7 @@ class ToolBar(QtWidgets.QWidget):
         layout.addWidget(self.erase_label)
         layout.addWidget(self.erase_slider)
         self.setLayout(layout)
+
 
     def change_sim_speed(self, value):
         self.speed_label.setText(f"Simulation Speed: {value}")
@@ -102,21 +93,25 @@ class ToolBar(QtWidgets.QWidget):
 
 class MainWindow(QtWidgets.QWidget):
     def __init__(self):
+        # initial settings
         self.speed = 1
         self.erase_size = 1
         super().__init__()
         self.grid_view = GridView(self)
         self.toolbar = ToolBar(self)
 
+        #timer for simulation speed
         self.timer = QtCore.QTimer(self)
         self.timer.setInterval(1000 // self.speed)  # ms
         self.timer.timeout.connect(self.step_simulation)
 
+        #layout splitting grid view and toolbar
         layout = QtWidgets.QHBoxLayout()
         layout.addWidget(self.grid_view)
         layout.addWidget(self.toolbar)
         self.setLayout(layout)
 
+        #connecting buttons and sliders to functions
         self.toolbar.step_requested.connect(self.step_simulation)
         self.toolbar.sim_speed_requested.connect(self.set_sim_speed)
         self.toolbar.update_toggle.connect(self.on_play_toggled)
@@ -125,6 +120,7 @@ class MainWindow(QtWidgets.QWidget):
         self.toolbar.erase_size_requested.connect(self.set_erase_size)
         self.toolbar.reset_requested.connect(self.reset_grid)
 
+        # window settings
         self.setWindowTitle("Evolution simulator")
         self.resize(600, 600)
 
@@ -170,25 +166,30 @@ class GridView(FigureCanvas):
     """
     The visualisation "widget" of the grid.
     """
+    #signals for mouse interactions
     erase_signal = QtCore.pyqtSignal(int, int)
     creation_signal = QtCore.pyqtSignal(int, int)
 
     def __init__(self, parent=None):
+        # setting up the matplotlib figure
         self.fig = Figure(figsize=(5,5))
         self.ax = self.fig.add_subplot(111) 
-        super().__init__(self.fig)
 
+        super().__init__(self.fig)
+        self.setMinimumSize(QtCore.QSize(500, 500))
+
+        #grid setup
         self.grid = np.zeros((gridsize, gridsize), dtype=int)
         self.grid[round(gridsize/2), round(gridsize/2)] = 1
+        
+        #colormap setup
         self.cmap = ListedColormap(['white', 'black'])
         self.norm = BoundaryNorm([0,1,2], self.cmap.N)
-
         self.im = self.ax.imshow(self.grid, cmap=self.cmap, norm=self.norm, origin='upper', interpolation='nearest')
         self.ax.set_xticks([])
         self.ax.set_yticks([])
 
-        self.setMinimumSize(QtCore.QSize(500, 500))
-
+        # connecting mouse events
         self.mpl_connect("button_press_event", self.on_mouse_click)
         self.mpl_connect("button_release_event", self.on_mouse_click)
 
