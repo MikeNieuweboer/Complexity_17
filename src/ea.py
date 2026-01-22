@@ -24,6 +24,7 @@ following prompt:
 
 """
 
+import csv
 import logging
 from collections.abc import Callable
 from enum import Enum
@@ -33,17 +34,29 @@ from pathlib import Path
 import nevergrad as ng
 import numpy as np
 import numpy.typing as npt
+from nevergrad.optimization import Optimizer
 from tqdm import trange
 
 from grid import Grid
+
+root_dir = Path(__file__).parent.parent
 
 # Setup logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-log_dir = Path(__file__).parent.parent / "logs"
+log_dir = root_dir / "logs"
+log_dir.mkdir(exist_ok=True, parents=True)
 file_handler = logging.FileHandler(log_dir / "ea.log", mode="a", encoding="utf-8")
 logger.addHandler(file_handler)
+
+# Extra file paths
+weights_dir = root_dir / "weights"
+weights_dir.mkdir(exist_ok=True, parents=True)
+data_dir = root_dir / "data"
+data_dir.mkdir(exist_ok=True, parents=True)
+state_dir = data_dir / "states"
+state_dir.mkdir(exist_ok=True, parents=True)
 
 
 class FitnessType(Enum):
@@ -187,23 +200,28 @@ class EA:
             {},
         )
 
-        self._optimizer = ng.optimizers.ParametrizedCMA(
+        self._optimizer: Optimizer = ng.optimizers.ParametrizedCMA(
             scale=0.4699,
             popsize_factor=3,
             diagonal=self._performance,
             high_speed=self._performance,
-        ).set_name("CMAcustom", register=True)(
+        ).set_name("CMAcustom", register=False)(
             param,
             num_workers=self._pop_count,
             budget=self._pop_count * self._gen_count,
         )
+        self._optimizer.enable_pickling()
 
-    def save_stats(self) -> None:
+    def save_stats(self, *, append: bool = False) -> None:
         """Save fitness statistics to disk.
 
         Persists fitness history and evolution statistics for analysis and
         visualization.
         """
+        file_path = data_dir / f"{self._fitness_type.name}_{self._ea_type.name}.csv"
+        with file_path.open("w" if not append else "a") as file:
+            writer = csv.writer(file)
+            writer.writerows(self._fitnesses)
 
     def save_weights(self) -> None:
         """Save best network weights to disk.
@@ -211,6 +229,31 @@ class EA:
         Persists the weights of the best-performing individual from the final
         generation.
         """
+        file_path = weights_dir / f"{self._fitness_type.name}_{self._ea_type.name}.npz"
+        weights = self._optimizer.recommend().args
+        np.savez(file_path, *weights)
+
+    @staticmethod
+    def load_weights(
+        fitness_type: FitnessType,
+        ea_type: EAType,
+    ) -> list[npt.NDArray]:
+        """Load the network weights from the disk.
+
+        Args:
+        ----
+        fitness_type: The fitness type the weights were evolved for.
+        ea_type: The type of evolution process used in evolving the weights.
+
+        """
+        file_path = weights_dir / f"{fitness_type.name}_{ea_type.name}.npz"
+        try:
+            npz = np.load(file_path)
+        except OSError as _:
+            logger.warning("Weights are not found.")
+            return []
+
+        return [npz[file] for file in npz.files]
 
     def save_optimizer(self) -> None:
         """Save the complete optimizer state for resuming evolution.
@@ -218,22 +261,21 @@ class EA:
         Persists the optimizer's internal state, allowing evolution to resume from
         the current generation without losing progress.
         """
-        # fl.save("tmp.h5", optimizer.__getstate__())
+        file_path = state_dir / f"{self._fitness_type.name}_{self._ea_type.name}.pickle"
+        self._optimizer.dump(file_path)
 
     def load_optimizer(self) -> None:
         """Load a previously saved optimizer state to resume evolution.
 
         Restores the optimizer's internal state from disk, enabling continuation of
         evolution from the generation where it was previously saved.
+        This optimizer uses its own matrix shapes for the weights, but does use
+        the new number of generations and population size.
         """
-        # # If the flag -r is set, use previous state of optimizer
-        # if cli_args.restart:
-        #     logger.info("Loading")
-        #     attrs = fl.load("tmp.h5")
-        #     for name, val in attrs.items():
-        #         if name in {"budget", "num_workers"}:
-        #             continue
-        #         optimizer.__setattr__(name, val)
+        file_path = state_dir / f"{self._fitness_type.name}_{self._ea_type.name}.pickle"
+        self._optimizer = Optimizer.load(file_path)
+        self._optimizer.num_workers = self._pop_count
+        self._optimizer.budget = self._pop_count * self._gen_count
 
     def _evolve_testing(self, grid: Grid) -> float:
         """Evaluate fitness using a simple testing metric.
@@ -359,9 +401,11 @@ class EA:
 
         # Reproduction
         population = [self._optimizer.ask() for _ in range(self._pop_count)]
-        logger.info("Starting generation %d", generation)
+
+        # Fitness evaluation
         results = []
         new_samples = []
+        logger.info("Starting generation %d", generation)
         for i, individual in enumerate(population):
             mean = 0
             for j, sample in enumerate(samples):
@@ -376,6 +420,8 @@ class EA:
                     new_samples.append((copy, result))
                 elif result > new_samples[j][1]:
                     new_samples[j] = (copy, result)
+
+            # Mean of loss, mimicking the batched gradient descent.
             mean /= sample_size
             results.append(mean)
 
@@ -416,8 +462,9 @@ class EA:
         if function is None:
             logger.error("Current evolution type is not supported.")
             return
+        self._grids = []
 
-        for gen in trange(self._gen_count):
+        for gen in trange(self._gen_count, smoothing=0.01):
             match self._ea_type:
                 case EAType.BASIC:
                     self._evolve_step_basic(gen, function)
@@ -426,8 +473,9 @@ class EA:
 
 
 def main() -> None:  # noqa: D103
-    ea = EA(48, 16, FitnessType.TESTING, ea_type=EAType.PERSISTENT, performance=True)
+    ea = EA(48, 16, FitnessType.TESTING, ea_type=EAType.BASIC, performance=True)
     ea.evolve()
+    ea.save_optimizer()
 
 
 if __name__ == "__main__":
