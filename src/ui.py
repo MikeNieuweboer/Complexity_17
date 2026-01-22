@@ -1,60 +1,255 @@
 import sys
+import numpy as np
+from PyQt6 import QtWidgets, QtGui, QtCore
+from matplotlib.backends.backend_qtagg import FigureCanvas
+from matplotlib.figure import Figure
+from matplotlib.colors import ListedColormap, BoundaryNorm
+gridsize = 100
 
-from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QHBoxLayout ,QVBoxLayout, QGridLayout, QStackedLayout, QPushButton
-from PyQt6.QtGui import QColor, QPalette
+def test_CA(grid:np.ndarray) -> np.ndarray:
+    # testing a simple CA update rule
+    new_grid = np.copy(grid)
+    for i in range(grid.shape[0]):
+        for j in range(grid.shape[1]):
+            if any(grid[i-1:i+2, j]) or any (grid[i, j-1:j+2]):
+                new_grid[i,j] = 1
+    return new_grid
 
-class Color(QWidget):
+
+class Color(QtWidgets.QWidget):
     def __init__(self, color):
         super().__init__()
         self.setAutoFillBackground(True)
 
         palette = self.palette()
-        palette.setColor(QPalette.ColorRole.Window, QColor(color))
+        palette.setColor(QtGui.QPalette.ColorRole.Window, QtGui.QColor(color))
         self.setPalette(palette)
 
 
-class MainWindow(QMainWindow):
+class ToolBar(QtWidgets.QWidget):
+    """ 
+    The toolbar widget containing controlls for viewing and updating the grid.
+    """
+    step_requested = QtCore.pyqtSignal(bool)
+    update_toggle = QtCore.pyqtSignal(bool)
+    reset_requested = QtCore.pyqtSignal(bool)
+    sim_speed_requested = QtCore.pyqtSignal(int)
+    erase_size_requested = QtCore.pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        # setting up buttons
+        self.playpause_button = QtWidgets.QPushButton("Play")
+        self.playpause_button.setCheckable(True)
+
+
+        self.step_button = QtWidgets.QPushButton("Step")
+        self.reset_button = QtWidgets.QPushButton("Reset")
+
+        self.speed_label = QtWidgets.QLabel("Simulation Speed: 1")
+        self.speed_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.speed_slider.setMinimum(1)
+        self.speed_slider.setMaximum(10)
+        self.speed_slider.setValue(1)
+
+        self.erase_label = QtWidgets.QLabel("Erase Size: 1")
+        self.erase_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.erase_slider.setMinimum(1)
+        self.erase_slider.setMaximum(6)
+        self.erase_slider.setValue(1)
+
+        self.setFixedSize(QtCore.QSize(150, 300))
+
+        # connecting buttons to functions
+        self.playpause_button.toggled.connect(self.play_pause_toggled)
+        self.step_button.clicked.connect(self.step_clicked)
+        self.reset_button.clicked.connect(self.reset_clicked)
+        self.speed_slider.valueChanged.connect(self.change_sim_speed)
+        self.erase_slider.valueChanged.connect(self.change_erase_size)
+
+        # layout
+        layout = QtWidgets.QVBoxLayout()
+        layout.addWidget(self.playpause_button)
+        layout.addWidget(self.step_button)
+        layout.addWidget(self.reset_button)
+        layout.addWidget(self.speed_label)
+        layout.addWidget(self.speed_slider)
+        layout.addWidget(self.erase_label)
+        layout.addWidget(self.erase_slider)
+        self.setLayout(layout)
+
+    def change_sim_speed(self, value):
+        self.speed_label.setText(f"Simulation Speed: {value}")
+        self.sim_speed_requested.emit(value)
+
+    def change_erase_size (self, value):
+        self.erase_label.setText(f"Erase Size: {value}")
+        self.erase_size_requested.emit(value)
+    
+    def play_pause_toggled(self, checked):
+        if checked:
+            self.playpause_button.setText("Pause")
+        else:
+            self.playpause_button.setText("Play")
+        self.update_toggle.emit(checked)
+
+    def step_clicked(self):
+        self.step_requested.emit(True)
+
+    def reset_clicked(self):
+        self.reset_requested.emit(True)
+
+class MainWindow(QtWidgets.QWidget):
     def __init__(self):
+        self.speed = 1
+        self.erase_size = 1
         super().__init__()
-        self.setWindowTitle("My App")
+        self.grid_view = GridView(self)
+        self.toolbar = ToolBar(self)
 
-        pagelayout = QVBoxLayout()
-        button_layout = QHBoxLayout()
-        self.stacklayout = QStackedLayout()
+        self.timer = QtCore.QTimer(self)
+        self.timer.setInterval(1000 // self.speed)  # ms
+        self.timer.timeout.connect(self.step_simulation)
 
-        pagelayout.addLayout(button_layout)
-        pagelayout.addLayout(self.stacklayout)
+        layout = QtWidgets.QHBoxLayout()
+        layout.addWidget(self.grid_view)
+        layout.addWidget(self.toolbar)
+        self.setLayout(layout)
 
-        btn = QPushButton("red")
-        btn.pressed.connect(self.activate_tab_1)
-        button_layout.addWidget(btn)
-        self.stacklayout.addWidget(Color("red"))
+        self.toolbar.step_requested.connect(self.step_simulation)
+        self.toolbar.sim_speed_requested.connect(self.set_sim_speed)
+        self.toolbar.update_toggle.connect(self.on_play_toggled)
+        self.grid_view.creation_signal.connect(self.create_function)
+        self.grid_view.erase_signal.connect(self.erase_function)
+        self.toolbar.erase_size_requested.connect(self.set_erase_size)
+        self.toolbar.reset_requested.connect(self.reset_grid)
 
-        btn = QPushButton("green")
-        btn.pressed.connect(self.activate_tab_2)
-        button_layout.addWidget(btn)
-        self.stacklayout.addWidget(Color("green"))
-
-        btn = QPushButton("yellow")
-        btn.pressed.connect(self.activate_tab_3)
-        button_layout.addWidget(btn)
-        self.stacklayout.addWidget(Color("yellow"))
-
-        widget = QWidget()
-        widget.setLayout(pagelayout)
-        self.setCentralWidget(widget)
-
-    def activate_tab_1(self):
-        self.stacklayout.setCurrentIndex(0)
-
-    def activate_tab_2(self):
-        self.stacklayout.setCurrentIndex(1)
-
-    def activate_tab_3(self):
-        self.stacklayout.setCurrentIndex(2)
+        self.setWindowTitle("Evolution simulator")
+        self.resize(600, 600)
 
 
-app = QApplication(sys.argv)
-window = MainWindow()
-window.show()
-app.exec()
+    def mousePressEvent(self, event):
+        print(f"Mouse clicked at: {event.position().x()}, {event.position().y()}")
+
+    def on_play_toggled(self, checked):
+        if checked:
+            self.timer.start()
+        else:
+            self.timer.stop()
+
+    def set_sim_speed(self, speed):
+        self.speed = speed
+        self.timer.setInterval(1000 // self.speed)
+        print(f"current sim speed: {self.speed}")
+
+    def set_erase_size(self, size):
+        self.erase_size = size
+        print(f"current erase size: {self.erase_size}")
+
+    def step_simulation(self):
+        new_grid = test_CA(self.grid_view.grid)
+        self.grid_view.update_grid(new_grid)
+
+    def create_function(self, row:int, col:int):
+        self.grid_view.grid[row, col] = 1
+        self.grid_view.update_grid(self.grid_view.grid)
+        
+    def erase_function(self, row:int, col:int):
+        coordinates = get_filled_circle_coordinates(row, col, self.erase_size)
+        for r, c in coordinates:
+            if 0 <= r < self.grid_view.grid.shape[0] and 0 <= c < self.grid_view.grid.shape[1]:
+                self.grid_view.grid[r, c] = 0
+        self.grid_view.update_grid(self.grid_view.grid)
+    
+    def reset_grid(self):
+        self.grid_view.grid = np.ones((gridsize, gridsize), dtype=int)
+        self.grid_view.update_grid(self.grid_view.grid)
+
+class GridView(FigureCanvas):
+    """
+    The visualisation "widget" of the grid.
+    """
+    erase_signal = QtCore.pyqtSignal(int, int)
+    creation_signal = QtCore.pyqtSignal(int, int)
+
+    def __init__(self, parent=None):
+        self.fig = Figure(figsize=(5,5))
+        self.ax = self.fig.add_subplot(111) 
+        super().__init__(self.fig)
+
+        self.grid = np.zeros((gridsize, gridsize), dtype=int)
+        self.grid[round(gridsize/2), round(gridsize/2)] = 1
+        self.cmap = ListedColormap(['white', 'black'])
+        self.norm = BoundaryNorm([0,1,2], self.cmap.N)
+
+        self.im = self.ax.imshow(self.grid, cmap=self.cmap, norm=self.norm, origin='upper', interpolation='nearest')
+        self.ax.set_xticks([])
+        self.ax.set_yticks([])
+
+        self.setMinimumSize(QtCore.QSize(500, 500))
+
+        self.mpl_connect("button_press_event", self.on_mouse_click)
+        self.mpl_connect("button_release_event", self.on_mouse_click)
+
+    def update_grid(self, new_grid):
+        self.grid = new_grid
+        self.im.set_data(self.grid)
+        self.draw_idle()
+    
+    def on_mouse_click(self, event):
+        if event.inaxes != self.ax:
+            return
+
+        if event.xdata is None or event.ydata is None:
+            return
+
+        row = int(event.ydata + 0.5)
+        col = int(event.xdata + 0.5)
+
+        if 0 <= row < self.grid.shape[0] and 0 <= col < self.grid.shape[1]:
+            if event.button == 3:  # right click
+                self.creation_signal.emit(row, col)
+                print(row, col)
+            elif event.button == 1:  # left click
+                self.erase_signal.emit(row, col)
+                print(row, col)
+
+
+def get_filled_circle_coordinates(center_row, center_col, radius): # <-- this is an LLM function
+    """
+    Get all grid coordinates inside a circle (filled circle).
+    
+    Parameters:
+    -----------
+    center_row : int
+        Row coordinate of the circle center
+    center_col : int
+        Column coordinate of the circle center
+    radius : int
+        Radius of the circle
+    
+    Returns:
+    --------
+    list of tuples
+        List of (row, col) coordinates inside the circle
+    """
+    coordinates = []
+    radius_squared = radius * radius
+    
+    # Iterate through a bounding box
+    for row in range(center_row - radius, center_row + radius + 1):
+        for col in range(center_col - radius, center_col + radius + 1):
+            # Calculate distance squared (avoids sqrt for performance)
+            dx = col - center_col
+            dy = row - center_row
+            if dx * dx + dy * dy <= radius_squared:
+                coordinates.append((row, col))
+    
+    return coordinates
+
+if __name__ == "__main__":
+    app = QtWidgets.QApplication(sys.argv)
+    w = MainWindow()
+    w.show()
+    app.exec()      
