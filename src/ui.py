@@ -6,14 +6,7 @@ from matplotlib.figure import Figure
 from matplotlib.colors import ListedColormap, BoundaryNorm
 gridsize = 100
 
-def test_CA(grid:np.ndarray) -> np.ndarray:
-    # testing a simple CA update rule
-    new_grid = np.copy(grid)
-    for i in range(grid.shape[0]):
-        for j in range(grid.shape[1]):
-            if any(grid[i-1:i+2, j]) or any (grid[i, j-1:j+2]):
-                new_grid[i,j] = 1
-    return new_grid
+
 
 
 class ToolBar(QtWidgets.QWidget):
@@ -27,11 +20,23 @@ class ToolBar(QtWidgets.QWidget):
     sim_speed_requested = QtCore.pyqtSignal(int)
     erase_size_requested = QtCore.pyqtSignal(int)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, analysis_tool={}):
         super().__init__(parent)
         self.setFixedSize(QtCore.QSize(150, 300))
+        self.analysis_tool_options = {"": "^ choose analysis tool"}
+        self.grid = None
 
+        if analysis_tool != {}:
+            for key in analysis_tool.keys():
+                self.analysis_tool_options[key] = analysis_tool[key]
+        
         # setting up buttons
+        
+        ComboBox_items = [""] + list(analysis_tool.keys())
+        self.analysis_tool = QtWidgets.QComboBox()
+        self.analysis_tool.addItems(ComboBox_items)
+        self.analysis_tool_label = QtWidgets.QLabel("^ choose analysis tool")
+
         self.playpause_button = QtWidgets.QPushButton("Play")
         self.playpause_button.setCheckable(True)
 
@@ -57,18 +62,21 @@ class ToolBar(QtWidgets.QWidget):
         self.reset_button.clicked.connect(self.reset_clicked)
         self.speed_slider.valueChanged.connect(self.change_sim_speed)
         self.erase_slider.valueChanged.connect(self.change_erase_size)
+        self.analysis_tool.currentTextChanged.connect(self.update_analysis_tool_label)
 
         # vertical layout of the toolbar buttons and sliders
         layout = QtWidgets.QVBoxLayout()
+        layout.addWidget(self.analysis_tool)
+        layout.addWidget(self.analysis_tool_label)
         layout.addWidget(self.playpause_button)
         layout.addWidget(self.step_button)
         layout.addWidget(self.reset_button)
         layout.addWidget(self.speed_label)
         layout.addWidget(self.speed_slider)
+        layout.addWidget(QtWidgets.QLabel(""))
         layout.addWidget(self.erase_label)
         layout.addWidget(self.erase_slider)
         self.setLayout(layout)
-
 
     def change_sim_speed(self, value):
         self.speed_label.setText(f"Simulation Speed: {value}")
@@ -91,21 +99,46 @@ class ToolBar(QtWidgets.QWidget):
     def reset_clicked(self):
         self.reset_requested.emit(True)
 
+    def set_grid(self, grid):
+        self.grid = grid
+
+    def update_analysis_tool_label(self, text):
+        if text == "":
+            self.analysis_tool_label.setText("^ choose analysis tool")
+        elif self.grid is None:
+            self.analysis_tool_label.setText("run simulation step to analyze")
+        else:
+            self.analysis_tool_label.setText(str(self.analysis_tool_options[text](self.grid)))
+
 class MainWindow(QtWidgets.QWidget):
-    def __init__(self):
+    """ 
+    Creates the main window, 
+
+    next_step_function:
+        REQUIRES a next_step_function for which it inputs the current grid and
+        expects the updated grid to be returned.
+
+    analysis_tool dictionary:
+        A dictionary of analysis tools to be used in the toolbar.
+        Key: Name of the tool as shown in the combobox.
+        Value: A function that takes the current grid as input and returns
+               a float or string to be displayed in the analysis tool label.
+    """
+    def __init__(self, next_step_function=None, analysis_tool={}):
         # initial settings
+        self.next_step_function = next_step_function
         self.speed = 1
         self.erase_size = 1
         super().__init__()
         self.grid_view = GridView(self)
-        self.toolbar = ToolBar(self)
+        self.toolbar = ToolBar(self, analysis_tool=analysis_tool)
 
         #timer for simulation speed
         self.timer = QtCore.QTimer(self)
         self.timer.setInterval(1000 // self.speed)  # ms
         self.timer.timeout.connect(self.step_simulation)
 
-        #layout splitting grid view and toolbar
+        #layout splitting grid-view and toolbar
         layout = QtWidgets.QHBoxLayout()
         layout.addWidget(self.grid_view)
         layout.addWidget(self.toolbar)
@@ -124,9 +157,14 @@ class MainWindow(QtWidgets.QWidget):
         self.setWindowTitle("Evolution simulator")
         self.resize(600, 600)
 
-
-    def mousePressEvent(self, event):
-        print(f"Mouse clicked at: {event.position().x()}, {event.position().y()}")
+    def step_simulation(self):
+        if self.next_step_function is None:
+            raise RuntimeError("No next_step_function defined")
+        else:
+            new_grid = self.next_step_function(self.grid_view.grid)
+        self.grid_view.update_grid(new_grid)
+        self.toolbar.set_grid(self.grid_view.grid)
+        self.toolbar.update_analysis_tool_label(self.toolbar.analysis_tool.currentText())
 
     def on_play_toggled(self, checked):
         if checked:
@@ -143,9 +181,8 @@ class MainWindow(QtWidgets.QWidget):
         self.erase_size = size
         print(f"current erase size: {self.erase_size}")
 
-    def step_simulation(self):
-        new_grid = test_CA(self.grid_view.grid)
-        self.grid_view.update_grid(new_grid)
+    def mousePressEvent(self, event):
+        print(f"Mouse clicked at: {event.position().x()}, {event.position().y()}")
 
     def create_function(self, row:int, col:int):
         self.grid_view.grid[row, col] = 1
@@ -161,6 +198,7 @@ class MainWindow(QtWidgets.QWidget):
     def reset_grid(self):
         self.grid_view.grid = np.ones((gridsize, gridsize), dtype=int)
         self.grid_view.update_grid(self.grid_view.grid)
+        self.toolbar.update_analysis_tool_label(self.toolbar.analysis_tool.currentText())
 
 class GridView(FigureCanvas):
     """
