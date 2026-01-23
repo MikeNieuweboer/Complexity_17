@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 import torch
 from torch.nn import functional
-
+import numpy as np
 from nn import NN
 
 if TYPE_CHECKING:
@@ -29,31 +29,75 @@ class Grid:
 
         self._device = device if device is not None else torch.device("cpu")
 
-        self._weights = weights
+        if weights:
+            self.set_weights_on_nn(weights)
 
         # Grid state: (H, W, C)
-        self._grid = torch.zeros(
+        self._grid_state = torch.zeros(
             (height, width, num_channels), dtype=torch.float32, device=self._device
         )
 
-        self.NN = NN()
-
+        self._seed = seed
         self._rng = torch.Generator(device=self._device)
         self._rng.manual_seed(seed)
+
+    def set_weights_on_nn(self, weights: tuple[npt.NDArray, ...]) -> None:
+        """Load pre-trained weights into the neural network.
+
+        Args:
+            weights: Tuple of two numpy arrays (hidden_layer, output_layer) containing
+                    the weights for the hidden and output layers respectively.
+
+        Raises:
+            ValueError: If weights tuple doesn't have exactly 2 elements.
+
+        """
+        if len(weights) != 2:  # noqa: PLR2004
+            raise ValueError(  # noqa: TRY003
+                "weights should have dimension 2 (hidden_layer, output_layer)",  # noqa: EM101
+                f", got {len(weights)}",
+            )
+
+        # ( (3*channel x hidden_n), (hidden_n x channel) )
+        hidden_layer, output_layer = weights
+
+        # Convert to tensors and set device/dtype, and transform
+        # #(In, Out) -> (Out, In, 1, 1)
+        hidden_tens = torch.from_numpy(hidden_layer).to(
+            self._device,
+            dtype=torch.float32,
+        )
+        hidden_tens = hidden_tens.permute(1, 0).unsqueeze(-1).unsqueeze(-1)
+        output_tens = torch.from_numpy(output_layer).to(
+            self._device,
+            dtype=torch.float32,
+        )
+        output_tens = output_tens.permute(1, 0).unsqueeze(-1).unsqueeze(-1)
+
+        # create NN instance and load weights
+        self.NN = NN(self._num_channels, hidden_layer.shape[1]).to(self._device)
+        self.NN.load_weights(hidden_tens, output_tens)
+
+        # set weights as attribute
+        self._weights = weights
 
     def seed_center(self, seed_vector: Tensor) -> None:
         """Initialize seed state vector in center of grid."""
         self.set_cell_state(
-            x=(self._width // 2), y=(self._height // 2), state_vector=seed_vector
+            x=(self._width // 2),
+            y=(self._height // 2),
+            state_vector=seed_vector,
         )
 
     def set_state(self, new_state: Tensor) -> None:
-        pass
+        self._grid_state = new_state
 
     def set_cell_state(self, x: int, y: int, state_vector: torch.Tensor) -> None:
         """Alter state vector at (y,x) in the grid."""
-        state_vector = state_vector.to(device=self._device, dtype=self._grid.dtype)
-        self._grid[y, x] = state_vector
+        state_vector = state_vector.to(
+            device=self._device, dtype=self._grid_state.dtype
+        )
+        self._grid_state[y, x] = state_vector
 
     def step(self, update_prob: float = 0.5, masking_th: float = 0.1) -> None:
         """Perform a single step of the grid's CA."""
@@ -66,7 +110,7 @@ class Grid:
 
         ### Neural network
         # Get derivative of current grid state
-        state_change = self.NN.perceive(self._grid)
+        state_change = self.NN.forward(self._grid_state)
 
         ### Stochastic Update
         # Stochastic mask with a probability for each cell
@@ -75,23 +119,32 @@ class Grid:
                 (self._height, self._width), generator=self._rng, device=self._device
             )
             < update_prob
-        ).to(self._grid.dtype)
+        ).to(self._grid_state.dtype)
 
         # Expand dimensionality to alter all channels (H,W) -> (H, W, 1)
         rand_mask = rand_mask.unsqueeze(-1)
         # Update grid stochastically
-        self._grid = self._grid + state_change * rand_mask
+        self._grid_state = self._grid_state + state_change * rand_mask
 
         ### Alive Masking
         # Allows wrapped alive masking with by multithreading on GPU
-        alpha = self._grid[:, :, 3:4]  # (H, W, 1)
+        alpha = self._grid_state[:, :, 3:4]  # (H, W, 1)
         alpha = alpha.permute(2, 0, 1).unsqueeze(0)  # (1, 1, H, W)
         alpha = functional.pad(alpha, (1, 1, 1, 1), mode="circular")
 
         alive = functional.max_pool2d(alpha, 3, stride=1, padding=0) > masking_th
         alive = alive.squeeze(0).permute(1, 2, 0)  # (H, W, 1)
 
-        self._grid *= alive.float()
+        self._grid_state *= alive.float()
+
+    def step_test(self) -> npt.ndarray:
+    # testing a simple CA update rule
+        new_grid = np.copy(self._grid_state)
+        for i in range(self._grid_state.shape[0]):
+            for j in range(self._grid_state.shape[1]):
+                if any(self._grid_state[i-1:i+2, j, 0]) or any (self._grid_state[i, j-1:j+2, 0]):
+                    new_grid[i,j] = 1
+        self._grid_state = torch.tensor(new_grid)
 
     def run_simulation(
         self,
@@ -106,20 +159,29 @@ class Grid:
             print(f"Step ({t}/{steps})\n")
         return state
 
-    def set_weights(self, new_weights: tuple[npt.NDArray, ...]) -> None:
-        self._weights = new_weights
-
     def deepcopy(self) -> Grid:
         """More performant alternative to the built in deepcopy."""
-        copy = Grid(self._width, self._height)
-        copy.set_state(self._grid.copy())
+        copy = Grid(
+            self._width,
+            self._height,
+            self._num_channels,
+            seed=self._seed,
+            device=self._device,
+        )
+        copy.set_state(self._grid_state.detach().clone())
         return copy
 
-    @property
-    def state(self) -> npt.NDArray:
-        if self._grid.device == "cpu":
-            return self._grid.numpy()
-        return self._grid.detach().numpy()
+    #@property
+    def state(self, layer = None) -> npt.NDArray:
+        if layer == None:
+            if self._grid_state.device == "cpu":
+                return self._grid_state.numpy()
+            return self._grid_state.detach().numpy()
+        else: 
+            if self._grid_state.device == "cpu":
+                return self._grid_state.numpy()[:,:,layer]
+            return self._grid_state.detach().numpy()[:,:,layer]
+            
 
     @property
     def weights(self) -> tuple[npt.NDArray, ...] | None:
