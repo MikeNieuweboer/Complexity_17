@@ -1,7 +1,7 @@
 import sys
 from collections.abc import Callable
 from typing import Any
-
+#tqdm
 import numpy as np
 import numpy.typing as npt
 from matplotlib.backend_bases import MouseEvent
@@ -9,6 +9,8 @@ from matplotlib.backends.backend_qtagg import FigureCanvas
 from matplotlib.colors import BoundaryNorm, ListedColormap
 from matplotlib.figure import Figure
 from PyQt6 import QtCore, QtGui, QtWidgets
+from grid import Grid
+import torch
 
 gridsize = 100
 # TODO store the grid somewhere
@@ -137,15 +139,18 @@ class MainWindow(QtWidgets.QWidget):
         self,
         next_step_function: Callable | None = None,
         analysis_tool: dict[str, Callable[[npt.NDArray], Any]] | None = None,
+        grid = Grid(width= gridsize, height = gridsize, num_channels=5)
     ):
+        
         # initial settings
         if analysis_tool is None:
             analysis_tool = {}
+        self.grid = grid
         self.next_step_function = next_step_function
         self.speed = 1
         self.erase_size = 1
         super().__init__()
-        self.grid_view = GridView(self)
+        self.grid_view = GridView(self, grid = self.grid)
         self.toolbar = ToolBar(self, analysis_tool=analysis_tool)
 
         # timer for simulation speed
@@ -225,7 +230,7 @@ class GridView(FigureCanvas):
     erase_signal = QtCore.pyqtSignal(int, int)
     creation_signal = QtCore.pyqtSignal(int, int)
 
-    def __init__(self, parent=None):
+    def __init__(self,parent=None , grid=None  ):
         # setting up the matplotlib figure
         self.fig = Figure(figsize=(5, 5))
         self.ax = self.fig.add_subplot(111)
@@ -234,10 +239,14 @@ class GridView(FigureCanvas):
         self.setMinimumSize(QtCore.QSize(500, 500))
 
         # grid setup
-        self.grid = np.zeros((gridsize, gridsize), dtype=int)
-        self.grid[round(gridsize / 2), round(gridsize / 2)] = 1
+        self.seed_vector = torch.zeros(5, dtype=torch.float32, device=None)
+        self.seed_vector[0] = 1.0  # aliveness
+        self.seed_vector[1:5] = 0.0  # alpha channel
 
-        # colormap setup
+        self.grid_source = grid
+        self.grid_source.seed_center(self.seed_vector)
+        self.grid = self.grid_source.state(layer=0) # add combobox for person to change view to be drawn
+        # colormap setup        
         self.cmap = ListedColormap(["white", "black"])
         self.norm = BoundaryNorm([0, 1, 2], self.cmap.N)
         self.im = self.ax.imshow(
@@ -256,8 +265,10 @@ class GridView(FigureCanvas):
         self.mpl_connect("button_release_event", self.on_release)
 
     def update_grid(self, new_grid: npt.NDArray) -> None:
-        self.grid = new_grid
-        self.im.set_data(self.grid)
+        #self.grid = new_grid
+        self.grid_source.step_test()
+        #self.im.set_data(self.grid)
+        self.im.set_data(self.grid_source.state(layer=0))
         self.draw_idle()
 
     def on_press(self, event: MouseEvent) -> None:
@@ -316,12 +327,21 @@ def get_filled_circle_coordinates(
             dy = row - center_row
             if dx * dx + dy * dy <= radius_squared:
                 coordinates.append((row, col))
-
     return coordinates
+
+def test_CA(grid:np.ndarray) -> np.ndarray:
+    # testing a simple CA update rule
+    new_grid = np.copy(grid)
+    for i in range(grid.shape[0]):
+        for j in range(grid.shape[1]):
+            if any(grid[i-1:i+2, j]) or any (grid[i, j-1:j+2]):
+                new_grid[i,j] = 1
+    return new_grid
 
 
 if __name__ == "__main__":
+    grid = Grid(gridsize, gridsize, 5)
     app = QtWidgets.QApplication(sys.argv)
-    w = MainWindow()
+    w = MainWindow(test_CA)
     w.show()
     app.exec()
