@@ -215,7 +215,10 @@ class NN(nn.Module):
 
         """
         # Move chanel dimension forward
-        input_tensor = self._to_channels_first(state_grid)
+        if state_grid.dim() == 3:
+            input_tensor = self._to_channels_first(state_grid.unsqueeze(0))
+        else:
+            input_tensor = self._to_channels_first(state_grid)
 
         perception_grid = self._perceive(input_tensor)  # ((B,) 3*C, H, W)
         hidden = torch.relu(self.hidden_layer(perception_grid))
