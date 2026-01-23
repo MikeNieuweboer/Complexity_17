@@ -82,7 +82,7 @@ class FitnessFunctions:
     performance.
     """
 
-    full_circle_channels = 4
+    full_circle_channels = 5
 
     @staticmethod
     def full_circle(grid: npt.NDArray, *, radius: float = 10) -> float:
@@ -487,7 +487,7 @@ class EA:
 
 
 def main() -> None:  # noqa: D103
-    ea = EA(48, 16, FitnessType.TESTING, ea_type=EAType.BASIC, performance=True)
+    ea = EA(15, 5, FitnessType.FULL_CIRCLE, ea_type=EAType.BASIC, performance=True)
     ea.evolve()
     ea.save_optimizer()
 
