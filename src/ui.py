@@ -9,6 +9,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvas
 from matplotlib.colors import BoundaryNorm, ListedColormap
 from matplotlib.figure import Figure
 from PyQt6 import QtCore, QtGui, QtWidgets
+import torch
 
 gridsize = 100
 # TODO store the grid somewhere
@@ -257,6 +258,7 @@ class GridView(FigureCanvas):
 
     def update_grid(self, new_grid: npt.NDArray) -> None:
         self.grid = new_grid
+        self.grid = self.grid
         self.im.set_data(self.grid)
         self.draw_idle()
 
