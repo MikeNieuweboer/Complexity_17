@@ -133,7 +133,7 @@ class Grid:
 
         ### Alive Masking
         # Allows wrapped alive masking with by multithreading on GPU
-        alpha = self._grid_state[:, :, 3:4]  # (H, W, 1)
+        alpha = self._grid_state[:, :, 0:1]  # (H, W, 1)
         alpha = alpha.permute(2, 0, 1).unsqueeze(0)  # (1, 1, H, W)
         alpha = functional.pad(alpha, (1, 1, 1, 1), mode="circular")
 

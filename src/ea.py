@@ -31,6 +31,7 @@ from enum import Enum
 from itertools import product
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import nevergrad as ng
 import numpy as np
 import numpy.typing as npt
@@ -220,8 +221,9 @@ class EA:
         )
 
         self._optimizer: Optimizer = ng.optimizers.ParametrizedCMA(
-            scale=0.4699,
-            popsize_factor=3,
+            scale=0.8905,
+            popsize_factor=8,
+            elitist=True,
             diagonal=self._performance,
             high_speed=self._performance,
         ).set_name("CMAcustom", register=False)(
@@ -383,6 +385,9 @@ class EA:
                 grids,
             ),
         )
+        if generation % 10 == 0:
+            plt.imshow(grids[np.argmin(results)].state[:, :, 0], cmap="inferno")
+            plt.show()
 
         best = min(results)
         mean = np.mean(results)
@@ -517,7 +522,8 @@ def main() -> None:
         5,
         FitnessType.FULL_CIRCLE,
         ea_type=EAType.BASIC,
-        performance=False,
+        performance=True,
+        pop_count=25,
     )
     ea.evolve()
 
