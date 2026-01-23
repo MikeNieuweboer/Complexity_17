@@ -184,12 +184,12 @@ class Grid:
 
     def step_test(self) -> npt.ndarray:
     # testing a simple CA update rule
-        new_grid = np.copy(self._grid_state)
+        new_grid = np.copy(self._grid_state[:,:,0])
         for i in range(self._grid_state.shape[0]):
             for j in range(self._grid_state.shape[1]):
                 if any(self._grid_state[i-1:i+2, j, 0]) or any (self._grid_state[i, j-1:j+2, 0]):
                     new_grid[i,j] = 1
-        self._grid_state = torch.tensor(new_grid)
+        self._grid_state[:,:,0] = torch.tensor(new_grid)
 
     def run_simulation(
         self,
@@ -224,7 +224,6 @@ class Grid:
         copy.set_state(self._grid_state.detach().clone())
         return copy
 
-    #@property
     def state(self, layer = None) -> npt.NDArray:
         if layer == None:
             if self._grid_state.device == "cpu":
@@ -232,8 +231,8 @@ class Grid:
             return self._grid_state.detach().numpy()
         else: 
             if self._grid_state.device == "cpu":
-                return self._grid_state.numpy()[:,:,layer]
-            return self._grid_state.detach().numpy()[:,:,layer]
+                return self._grid_state[:,:,layer].numpy()
+            return self._grid_state[:,:,layer].detach().numpy()
             
 
     @property

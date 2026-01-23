@@ -181,12 +181,14 @@ class MainWindow(QtWidgets.QWidget):
         if self.next_step_function is None:
             raise RuntimeError("No next_step_function defined")
 
-        new_grid = self.next_step_function(self.grid_view.grid)
-        self.grid_view.update_grid(new_grid)
-        self.toolbar.set_grid(new_grid)
+        self.grid.step_test()
+        self.grid_view.update_grid(self.grid.state(layer=0))
+        self.toolbar.set_grid(self.grid.state(layer=0))
+
         self.toolbar.update_analysis_tool_label(
             self.toolbar.analysis_tool.currentText()
         )
+
 
     def on_play_toggled(self, checked: bool):  # noqa: FBT001
         if checked:
@@ -265,10 +267,8 @@ class GridView(FigureCanvas):
         self.mpl_connect("button_release_event", self.on_release)
 
     def update_grid(self, new_grid: npt.NDArray) -> None:
-        #self.grid = new_grid
-        self.grid_source.step_test()
-        #self.im.set_data(self.grid)
-        self.im.set_data(self.grid_source.state(layer=0))
+        self.grid = new_grid
+        self.im.set_data(self.grid)
         self.draw_idle()
 
     def on_press(self, event: MouseEvent) -> None:
