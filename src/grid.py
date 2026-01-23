@@ -37,10 +37,11 @@ class Grid:
             (height, width, num_channels), dtype=torch.float32, device=self._device
         )
 
+        self._seed = seed
         self._rng = torch.Generator(device=self._device)
         self._rng.manual_seed(seed)
 
-    def set_weights_on_nn(self, weights : tuple[npt.NDArray, ...]) -> None:
+    def set_weights_on_nn(self, weights: tuple[npt.NDArray, ...]) -> None:
         """Load pre-trained weights into the neural network.
 
         Args:
@@ -54,16 +55,21 @@ class Grid:
         if len(weights) != 2:  # noqa: PLR2004
             raise ValueError(  # noqa: TRY003
                 "weights should have dimension 2 (hidden_layer, output_layer)",  # noqa: EM101
-                f", got {len(weights)}")
+                f", got {len(weights)}",
+            )
 
         # ( (3*channel x hidden_n), (hidden_n x channel) )
         hidden_layer, output_layer = weights
 
-        # Convert to tensors and set device/dtype, and transform 
+        # Convert to tensors and set device/dtype, and transform
         # #(In, Out) -> (Out, In, 1, 1)
-        hidden_tens = torch.from_numpy(hidden_layer).to(self._device, dtype=torch.float32)  # noqa: E501
+        hidden_tens = torch.from_numpy(hidden_layer).to(
+            self._device, dtype=torch.float32
+        )  # noqa: E501
         hidden_tens = hidden_tens.permute(1, 0).unsqueeze(-1).unsqueeze(-1)
-        output_tens = torch.from_numpy(output_layer).to(self._device, dtype=torch.float32) # noqa: E501
+        output_tens = torch.from_numpy(output_layer).to(
+            self._device, dtype=torch.float32
+        )  # noqa: E501
         output_tens = output_tens.permute(1, 0).unsqueeze(-1).unsqueeze(-1)
 
         # create NN instance and load weights
@@ -140,8 +146,14 @@ class Grid:
 
     def deepcopy(self) -> Grid:
         """More performant alternative to the built in deepcopy."""
-        copy = Grid(self._width, self._height)
-        copy.set_state(self._grid.copy())
+        copy = Grid(
+            self._width,
+            self._height,
+            self._num_channels,
+            seed=self._seed,
+            device=self._device,
+        )
+        copy.set_state(self._grid.detach().clone())
         return copy
 
     @property

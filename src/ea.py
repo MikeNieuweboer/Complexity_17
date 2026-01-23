@@ -82,6 +82,8 @@ class FitnessFunctions:
     performance.
     """
 
+    full_circle_channels = 4
+
     @staticmethod
     def full_circle(grid: npt.NDArray, *, radius: float = 10) -> float:
         """Calculate fitness for circle pattern formation.
@@ -110,7 +112,8 @@ class FitnessFunctions:
         loss = 0
         for x, y in product(range(shape[1]), range(shape[0])):
             result = circle(x - center[0], y - center[1])
-            active = True  # TODO: True if alive, False otherwise
+            alive_border = 0.1
+            active = grid[y, x, 0] > alive_border
             loss += 1 if result >= 0 == active else 0
         return loss
 
@@ -353,7 +356,10 @@ class EA:
         results = list(
             map(
                 function,
-                (Grid(50, 50, weights=individual.args) for individual in population),
+                (
+                    Grid(50, 50, self._num_channels, weights=individual.args)
+                    for individual in population
+                ),
             ),
         )
 
@@ -393,14 +399,16 @@ class EA:
         """
         pool_size = 1024
         if self._grids == []:
-            self._grids = [(Grid(50, 50), 0) for _ in range(pool_size)]
+            self._grids = [
+                (Grid(50, 50, self._num_channels), 0) for _ in range(pool_size)
+            ]
 
         # Samples
         sample_size = 32
         indices = self._gen.choice(pool_size, (sample_size,), replace=False)  # pyright: ignore[reportCallIssue, reportArgumentType]
         samples: list[tuple[Grid, int]] = [self._grids[i] for i in indices]
         smallest_sample = min(range(sample_size), key=lambda x: samples[x][1])
-        samples[smallest_sample] = (Grid(50, 50), 0)
+        samples[smallest_sample] = (Grid(50, 50, self._num_channels), 0)
 
         # Reproduction
         population = [self._optimizer.ask() for _ in range(self._pop_count)]
@@ -454,12 +462,15 @@ class EA:
         Runs the evolution process for the specified number of generations, using the
         configured fitness type and evolutionary strategy. Logs progress and fitness
         statistics at each generation.
+
         """
         function = None
         match self._fitness_type:
             case FitnessType.TESTING:
+                self._num_channels = 1
                 function = self._evolve_testing
             case FitnessType.FULL_CIRCLE:
+                self._num_channels = FitnessFunctions.full_circle_channels
                 function = self._evolve_full_circle
 
         if function is None:
@@ -476,9 +487,12 @@ class EA:
 
 
 def main() -> None:  # noqa: D103
-    ea = EA(48, 16, FitnessType.TESTING, ea_type=EAType.BASIC, performance=True)
-    ea.evolve()
-    ea.save_optimizer()
+    # ea = EA(48, 16, FitnessType.TESTING, ea_type=EAType.BASIC, performance=True)
+    # ea.evolve()
+    # ea.save_optimizer()
+    sum = 0
+    for i in trange(100000000000):
+        sum += 1
 
 
 if __name__ == "__main__":
