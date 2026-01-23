@@ -6,6 +6,7 @@ import torch
 from torch.nn import functional
 from tqdm import trange
 
+import numpy as np
 from nn import NN
 
 if TYPE_CHECKING:
@@ -299,6 +300,15 @@ class Grid:
             batch = self.step(batch=batch, update_prob=update_prob, masking_th=masking_th)
         self._batch = batch
 
+    def step_test(self) -> npt.ndarray:
+    # testing a simple CA update rule
+        new_grid = np.copy(self._grid_state)
+        for i in range(self._grid_state.shape[0]):
+            for j in range(self._grid_state.shape[1]):
+                if any(self._grid_state[i-1:i+2, j, 0]) or any (self._grid_state[i, j-1:j+2, 0]):
+                    new_grid[i,j] = 1
+        self._grid_state = torch.tensor(new_grid)
+
     def run_simulation(
         self,
         steps: int = 20,
@@ -331,10 +341,17 @@ class Grid:
         )
         return self._batch.detach().clone()
 
-    @property
-    def state(self) -> npt.NDArray:
-        """Numpy view of the current batch state. Shape: (B, C, H, W)."""
-        return self._batch.detach().cpu().numpy()
+    #@property
+    def state(self, layer = None) -> npt.NDArray:
+        if layer == None:
+            if self._grid_state.device == "cpu":
+                return self._grid_state.numpy()
+            return self._grid_state.detach().numpy()
+        else: 
+            if self._grid_state.device == "cpu":
+                return self._grid_state.numpy()[:,:,layer]
+            return self._grid_state.detach().numpy()[:,:,layer]
+            
 
     @property
     def pool_state(self) -> npt.NDArray:
