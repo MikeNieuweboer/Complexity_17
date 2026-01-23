@@ -64,6 +64,7 @@ class FitnessType(Enum):
 
     TESTING = 0
     FULL_CIRCLE = 1
+    LOWER_HALF = 2
 
 
 class EAType(Enum):
@@ -114,7 +115,22 @@ class FitnessFunctions:
             result = circle(x - center[0], y - center[1])
             alive_border = 0.1
             active = grid[y, x, 0] > alive_border
-            loss += 1 if result >= 0 == active else 0
+            if (result >= 0) == active:
+                loss += 1
+        return loss
+
+    lower_half_channels = 5
+
+    @staticmethod
+    def lower_half(grid: npt.NDArray) -> float:
+        loss = 0
+        height = len(grid)
+        shape = grid.shape
+        for x, y in product(range(shape[1]), range(shape[0])):
+            alive_border = 0.1
+            active = grid[y, x, 0] > alive_border
+            if (active and y < height // 2) or (not active and y >= height // 2):
+                loss += 1
         return loss
 
 
@@ -318,7 +334,8 @@ class EA:
         low = 64
         high = 96
 
-        steps = int(self._gen.integers(low, high))
+        # NOTE: No
+        steps = 40
         grid.run_simulation(steps=steps)
         return fitness(grid.state)
 
@@ -332,6 +349,9 @@ class EA:
 
         """
         return self._basic_simulation(grid, FitnessFunctions.full_circle)
+
+    def _evolve_lower_half(self, grid: Grid) -> float:
+        return self._basic_simulation(grid, FitnessFunctions.lower_half)
 
     def _evolve_step_basic(
         self,
@@ -353,13 +373,14 @@ class EA:
         # Reproduction
         population = [self._optimizer.ask() for _ in range(self._pop_count)]
         logger.info("Starting generation %d", generation)
+        grids = [
+            Grid(50, 50, self._num_channels, weights=individual.args)
+            for individual in population
+        ]
         results = list(
             map(
                 function,
-                (
-                    Grid(50, 50, self._num_channels, weights=individual.args)
-                    for individual in population
-                ),
+                grids,
             ),
         )
 
@@ -421,6 +442,7 @@ class EA:
             mean = 0
             for j, sample in enumerate(samples):
                 copy = sample[0].deepcopy()
+                # TODO: Fix
                 copy.set_weights(individual.args)
                 result = fitness_eval(copy)
                 mean += result
@@ -472,6 +494,9 @@ class EA:
             case FitnessType.FULL_CIRCLE:
                 self._num_channels = FitnessFunctions.full_circle_channels
                 function = self._evolve_full_circle
+            case FitnessType.LOWER_HALF:
+                self._num_channels = FitnessFunctions.lower_half_channels
+                function = self._evolve_lower_half
 
         if function is None:
             logger.error("Current evolution type is not supported.")
@@ -486,10 +511,15 @@ class EA:
                     self._evolve_step_persistent(gen, function)
 
 
-def main() -> None:  # noqa: D103
-    ea = EA(15, 5, FitnessType.FULL_CIRCLE, ea_type=EAType.BASIC, performance=True)
+def main() -> None:
+    ea = EA(
+        15,
+        5,
+        FitnessType.FULL_CIRCLE,
+        ea_type=EAType.BASIC,
+        performance=False,
+    )
     ea.evolve()
-    ea.save_optimizer()
 
 
 if __name__ == "__main__":

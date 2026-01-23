@@ -40,6 +40,10 @@ class Grid:
         self._seed = seed
         self._rng = torch.Generator(device=self._device)
         self._rng.manual_seed(seed)
+        seed_center = [1 for i in range(num_channels)]
+        if num_channels > 1:
+            seed_center[1] = 0
+        self.seed_center(torch.Tensor(seed_center))
 
     def set_weights_on_nn(self, weights: tuple[npt.NDArray, ...]) -> None:
         """Load pre-trained weights into the neural network.
@@ -125,6 +129,7 @@ class Grid:
         rand_mask = rand_mask.unsqueeze(-1)
         # Update grid stochastically
         self._grid_state = self._grid_state + state_change * rand_mask
+        self._grid_state = self._grid_state.clamp(0, 1)
 
         ### Alive Masking
         # Allows wrapped alive masking with by multithreading on GPU
@@ -147,7 +152,7 @@ class Grid:
         for t in range(steps):
             state = self.step(update_prob=update_prob, masking_th=masking_th)
             # TODO: make print toggleable
-            print(f"Step ({t}/{steps})\n")
+            # print(f"Step ({t}/{steps})\n")
         return state
 
     def deepcopy(self) -> Grid:
