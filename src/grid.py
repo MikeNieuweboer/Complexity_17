@@ -33,7 +33,7 @@ class Grid:
             self.set_weights_on_nn(weights)
 
         # Grid state: (H, W, C)
-        self._grid = torch.zeros(
+        self._grid_state = torch.zeros(
             (height, width, num_channels), dtype=torch.float32, device=self._device
         )
 
@@ -64,12 +64,14 @@ class Grid:
         # Convert to tensors and set device/dtype, and transform
         # #(In, Out) -> (Out, In, 1, 1)
         hidden_tens = torch.from_numpy(hidden_layer).to(
-            self._device, dtype=torch.float32
-        )  # noqa: E501
+            self._device,
+            dtype=torch.float32,
+        )
         hidden_tens = hidden_tens.permute(1, 0).unsqueeze(-1).unsqueeze(-1)
         output_tens = torch.from_numpy(output_layer).to(
-            self._device, dtype=torch.float32
-        )  # noqa: E501
+            self._device,
+            dtype=torch.float32,
+        )
         output_tens = output_tens.permute(1, 0).unsqueeze(-1).unsqueeze(-1)
 
         # create NN instance and load weights
@@ -82,16 +84,20 @@ class Grid:
     def seed_center(self, seed_vector: Tensor) -> None:
         """Initialize seed state vector in center of grid."""
         self.set_cell_state(
-            x=(self._width // 2), y=(self._height // 2), state_vector=seed_vector
+            x=(self._width // 2),
+            y=(self._height // 2),
+            state_vector=seed_vector,
         )
 
     def set_state(self, new_state: Tensor) -> None:
-        pass
+        self._grid_state = new_state
 
     def set_cell_state(self, x: int, y: int, state_vector: torch.Tensor) -> None:
         """Alter state vector at (y,x) in the grid."""
-        state_vector = state_vector.to(device=self._device, dtype=self._grid.dtype)
-        self._grid[y, x] = state_vector
+        state_vector = state_vector.to(
+            device=self._device, dtype=self._grid_state.dtype
+        )
+        self._grid_state[y, x] = state_vector
 
     def step(self, update_prob: float = 0.5, masking_th: float = 0.1) -> None:
         """Perform a single step of the grid's CA."""
@@ -104,7 +110,7 @@ class Grid:
 
         ### Neural network
         # Get derivative of current grid state
-        state_change = self.NN.forward(self._grid)
+        state_change = self.NN.forward(self._grid_state)
 
         ### Stochastic Update
         # Stochastic mask with a probability for each cell
@@ -113,23 +119,23 @@ class Grid:
                 (self._height, self._width), generator=self._rng, device=self._device
             )
             < update_prob
-        ).to(self._grid.dtype)
+        ).to(self._grid_state.dtype)
 
         # Expand dimensionality to alter all channels (H,W) -> (H, W, 1)
         rand_mask = rand_mask.unsqueeze(-1)
         # Update grid stochastically
-        self._grid = self._grid + state_change * rand_mask
+        self._grid_state = self._grid_state + state_change * rand_mask
 
         ### Alive Masking
         # Allows wrapped alive masking with by multithreading on GPU
-        alpha = self._grid[:, :, 3:4]  # (H, W, 1)
+        alpha = self._grid_state[:, :, 3:4]  # (H, W, 1)
         alpha = alpha.permute(2, 0, 1).unsqueeze(0)  # (1, 1, H, W)
         alpha = functional.pad(alpha, (1, 1, 1, 1), mode="circular")
 
         alive = functional.max_pool2d(alpha, 3, stride=1, padding=0) > masking_th
         alive = alive.squeeze(0).permute(1, 2, 0)  # (H, W, 1)
 
-        self._grid *= alive.float()
+        self._grid_state *= alive.float()
 
     def run_simulation(
         self,
@@ -153,14 +159,14 @@ class Grid:
             seed=self._seed,
             device=self._device,
         )
-        copy.set_state(self._grid.detach().clone())
+        copy.set_state(self._grid_state.detach().clone())
         return copy
 
     @property
     def state(self) -> npt.NDArray:
-        if self._grid.device == "cpu":
-            return self._grid.numpy()
-        return self._grid.detach().numpy()
+        if self._grid_state.device == "cpu":
+            return self._grid_state.numpy()
+        return self._grid_state.detach().numpy()
 
     @property
     def weights(self) -> tuple[npt.NDArray, ...] | None:
