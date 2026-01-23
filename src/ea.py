@@ -289,6 +289,9 @@ class EA:
         Fitness loss value. Lower values indicate weights closer to 1.
 
         """
+        if grid.weights is None:
+            logger.error("No weights assigned")
+            return 0
         return np.sum(np.abs(grid.weights[0] - 1))
 
     def _basic_simulation(self, grid: Grid, fitness: Callable) -> float:
@@ -313,8 +316,8 @@ class EA:
         high = 96
 
         steps = int(self._gen.integers(low, high))
-        grid.simulate(steps)
-        return fitness(self._grid.grid)
+        grid.run_simulation(steps=steps)
+        return fitness(grid.state)
 
     def _evolve_full_circle(self, grid: Grid) -> float:
         """Evaluate fitness for circle pattern formation.

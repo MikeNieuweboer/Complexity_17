@@ -8,6 +8,7 @@ following prompt:
 > Analyze the specific function and create a consise docstring
 Afterwards manual changes were made to the liking of the coder.
 """
+
 import torch
 from torch import nn
 
@@ -19,12 +20,11 @@ class NN(nn.Module):
     Reference: https://distill.pub/2020/growing-ca/
     """
 
-    def __init__(self,
-                 num_channels: int,
-                 hidden_layer_size: int) -> None:
+    def __init__(self, num_channels: int, hidden_layer_size: int) -> None:
         """Initialize the network.
 
         Args:
+        ----
             num_channels: Length of state vector (C).
             hidden_layer_size: Hidden layer width.
 
@@ -33,20 +33,25 @@ class NN(nn.Module):
         self.num_channels = num_channels
 
         self.hidden_layer = nn.Conv2d(
-            in_channels=3 * num_channels, out_channels=hidden_layer_size,
-            kernel_size=1, bias=False,
+            in_channels=3 * num_channels,
+            out_channels=hidden_layer_size,
+            kernel_size=1,
+            bias=False,
         )
         self.output_layer = nn.Conv2d(
-            in_channels=hidden_layer_size, out_channels=num_channels,
-            kernel_size=1, bias=False,
+            in_channels=hidden_layer_size,
+            out_channels=num_channels,
+            kernel_size=1,
+            bias=False,
         )
 
         # initialize output layer to 0, as it would not make
         # sense for the grid to initially exhibit chaotic behaviour.
         nn.init.zeros_(self.output_layer.weight)
 
-    def load_weights(self, hidden_layer_weight: torch.Tensor,
-                     output_layer_weight: torch.Tensor) -> None:
+    def load_weights(
+        self, hidden_layer_weight: torch.Tensor, output_layer_weight: torch.Tensor
+    ) -> None:
         """Load and validates custom weights for the neural network layers.
 
         Args:
@@ -144,25 +149,43 @@ class NN(nn.Module):
 
         # filters
         sobel_x = (
-            torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]],
-                         device=user_device, dtype=user_dtype)
+            torch.tensor(
+                [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]],
+                device=user_device,
+                dtype=user_dtype,
+            )
             .view(1, 1, 3, 3)
             .repeat(C, 1, 1, 1)
         )
 
         sobel_y = (
-            torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]],
-                         device=user_device, dtype=user_dtype)
+            torch.tensor(
+                [[-1, -2, -1], [0, 0, 0], [1, 2, 1]],
+                device=user_device,
+                dtype=user_dtype,
+            )
             .view(1, 1, 3, 3)
             .repeat(C, 1, 1, 1)
         )
 
         # create the layer
         conv_x = nn.Conv2d(
-            C, C, 3, padding=1, padding_mode="circular", groups=C, bias=False,
+            C,
+            C,
+            3,
+            padding=1,
+            padding_mode="circular",
+            groups=C,
+            bias=False,
         )
         conv_y = nn.Conv2d(
-            C, C, 3, padding=1, padding_mode="circular", groups=C, bias=False,
+            C,
+            C,
+            3,
+            padding=1,
+            padding_mode="circular",
+            groups=C,
+            bias=False,
         )
 
         # set the weights
@@ -175,7 +198,8 @@ class NN(nn.Module):
 
         # concatenating with identity (B, 3C, H, W)
         perception_grid = torch.cat(
-            [sobel_x_output, sobel_y_output, state_grid], dim=1,
+            [sobel_x_output, sobel_y_output, state_grid],
+            dim=1,
         )
 
         return perception_grid  # noqa: RET504
