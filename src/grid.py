@@ -29,17 +29,49 @@ class Grid:
 
         self._device = device if device is not None else torch.device("cpu")
 
-        self._weights = weights
+        if weights:
+            self.set_weights_on_nn(weights)
 
         # Grid state: (H, W, C)
         self._grid = torch.zeros(
             (height, width, num_channels), dtype=torch.float32, device=self._device
         )
 
-        self.NN = NN()
-
         self._rng = torch.Generator(device=self._device)
         self._rng.manual_seed(seed)
+
+    def set_weights_on_nn(self, weights : tuple[npt.NDArray, ...]) -> None:
+        """Load pre-trained weights into the neural network.
+
+        Args:
+            weights: Tuple of two numpy arrays (hidden_layer, output_layer) containing
+                    the weights for the hidden and output layers respectively.
+
+        Raises:
+            ValueError: If weights tuple doesn't have exactly 2 elements.
+
+        """
+        if len(weights) != 2:  # noqa: PLR2004
+            raise ValueError(  # noqa: TRY003
+                "weights should have dimension 2 (hidden_layer, output_layer)",  # noqa: EM101
+                f", got {len(weights)}")
+
+        # ( (3*channel x hidden_n), (hidden_n x channel) )
+        hidden_layer, output_layer = weights
+
+        # Convert to tensors and set device/dtype, and transform 
+        # #(In, Out) -> (Out, In, 1, 1)
+        hidden_tens = torch.from_numpy(hidden_layer).to(self._device, dtype=torch.float32)  # noqa: E501
+        hidden_tens = hidden_tens.permute(1, 0).unsqueeze(-1).unsqueeze(-1)
+        output_tens = torch.from_numpy(output_layer).to(self._device, dtype=torch.float32) # noqa: E501
+        output_tens = output_tens.permute(1, 0).unsqueeze(-1).unsqueeze(-1)
+
+        # create NN instance and load weights
+        self.NN = NN(self._num_channels, hidden_layer.shape[1]).to(self._device)
+        self.NN.load_weights(hidden_tens, output_tens)
+
+        # set weights as attribute
+        self._weights = weights
 
     def seed_center(self, seed_vector: Tensor) -> None:
         """Initialize seed state vector in center of grid."""
@@ -66,7 +98,7 @@ class Grid:
 
         ### Neural network
         # Get derivative of current grid state
-        state_change = self.NN.perceive(self._grid)
+        state_change = self.NN.forward(self._grid)
 
         ### Stochastic Update
         # Stochastic mask with a probability for each cell
@@ -105,9 +137,6 @@ class Grid:
             # TODO: make print toggleable
             print(f"Step ({t}/{steps})\n")
         return state
-
-    def set_weights(self, new_weights: tuple[npt.NDArray, ...]) -> None:
-        self._weights = new_weights
 
     def deepcopy(self) -> Grid:
         """More performant alternative to the built in deepcopy."""
