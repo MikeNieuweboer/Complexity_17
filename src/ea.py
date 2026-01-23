@@ -487,12 +487,9 @@ class EA:
 
 
 def main() -> None:  # noqa: D103
-    # ea = EA(48, 16, FitnessType.TESTING, ea_type=EAType.BASIC, performance=True)
-    # ea.evolve()
-    # ea.save_optimizer()
-    sum = 0
-    for i in trange(100000000000):
-        sum += 1
+    ea = EA(48, 16, FitnessType.TESTING, ea_type=EAType.BASIC, performance=True)
+    ea.evolve()
+    ea.save_optimizer()
 
 
 if __name__ == "__main__":
