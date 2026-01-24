@@ -147,13 +147,21 @@ class Grid:
         steps: int = 20,
         update_prob: float = 0.5,
         masking_th: float = 0.1,
+        record_history: bool = False,
     ):
         """Run the grid CA for a fixed number of steps."""
-        for t in range(steps):
-            state = self.step(update_prob=update_prob, masking_th=masking_th)
-            # TODO: make print toggleable
-            # print(f"Step ({t}/{steps})\n")
-        return state
+        if record_history:
+            state = self._grid_state.detach().clone().unsqueeze(0)
+            for _ in range(steps):
+                self.step(update_prob=update_prob, masking_th=masking_th)
+                state = torch.cat( (state,
+                                    self._grid_state.detach().clone().unsqueeze(0) ), 0)
+            return state
+
+        # otherwise only return final state
+        for _ in range(steps):
+            self.step(update_prob=update_prob, masking_th=masking_th)
+        return self._grid_state.clone()
 
     def deepcopy(self) -> Grid:
         """More performant alternative to the built in deepcopy."""

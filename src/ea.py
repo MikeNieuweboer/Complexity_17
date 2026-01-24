@@ -117,7 +117,7 @@ class FitnessFunctions:
             result = in_circle(x - center[0], y - center[1])
             target = 1.0 if result else 0.0
             current = grid[y, x, 0]
-            loss += (current - target) ** 2
+            loss += (current - target) ** 2 #L2 loss
         return loss
 
     full_circle_balanced_channels = 5
@@ -253,8 +253,8 @@ class EA:
         """
         # Paper used inputs->128->ReLu->16=delta vector
         weight_shapes = [
-            (inputs, 64),
-            (64, outputs),
+            (inputs, 16),
+            (16, outputs),
         ]
 
         # Create the optimizer
@@ -262,8 +262,11 @@ class EA:
             *[ng.p.Array(shape=weight, mutable_sigma=True) for weight in weight_shapes],
         )
 
+        w1 = self._gen.uniform(-1, 1, weight_shapes[0])
+        w2 = np.zeros(weight_shapes[1]) # output layer should start with 0s
+
         param.value = (
-            tuple(self._gen.uniform(-1, 1, shape) for shape in weight_shapes),
+            (w1, w2),
             {},
         )
 
@@ -560,7 +563,7 @@ class EA:
             case FitnessType.LOWER_HALF:
                 self._num_channels = FitnessFunctions.lower_half_channels
                 function = self._evolve_lower_half
-            case FitnessType.FULL_CIRCLE:
+            case FitnessType.FULL_CIRCLE_BALANCED:
                 self._num_channels = FitnessFunctions.full_circle_balanced_channels
                 function = self._evolve_full_circle_balanced
 
@@ -587,9 +590,9 @@ def main() -> None:
         FitnessType.FULL_CIRCLE_BALANCED,
         ea_type=EAType.BASIC,
         performance=True,
-        pop_count=50,
-        grid_size=30,
-        gen_count=350,
+        pop_count=100,
+        grid_size=35,
+        gen_count=200,
     )
     ea.evolve()
 
