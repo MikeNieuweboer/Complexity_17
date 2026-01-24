@@ -65,7 +65,8 @@ class FitnessType(Enum):
 
     TESTING = 0
     FULL_CIRCLE = 1
-    LOWER_HALF = 2
+    FULL_CIRCLE_BALANCED = 2
+    LOWER_HALF = 3
 
 
 class EAType(Enum):
@@ -87,7 +88,42 @@ class FitnessFunctions:
     full_circle_channels = 5
 
     @staticmethod
-    def full_circle(grid: npt.NDArray, radius: float = 10) -> float:
+    def full_circle(grid: npt.NDArray, *, radius: float = 10) -> float:
+        """Calculate fitness for circle pattern formation.
+
+        Evaluates how well the Neural CA produces a circular pattern at the grid
+        center. The fitness is the count of grid cells that deviate from the
+        expected circle pattern.
+
+        Args:
+        ----
+            grid: A 3D numpy array representing the Neural CA grid state.
+            radius: The target radius of the circle in grid units. Defaults to 10.
+
+        Returns:
+        -------
+            The fitness loss value (non-negative float). Lower values indicate better
+            circle pattern formation. Returns 0 for perfect circle formation.
+
+        """
+        shape = grid.shape
+        center = (shape[1] / 2, shape[0] / 2)
+
+        def in_circle(x: float, y: float) -> float:
+            return (x**2 + y**2 - radius**2) <= 0
+
+        loss = 0
+        for x, y in product(range(shape[1]), range(shape[0])):
+            result = in_circle(x - center[0], y - center[1])
+            target = 1.0 if result else 0.0
+            current = grid[y, x, 0]
+            loss += (current - target) ** 2
+        return loss
+
+    full_circle_balanced_channels = 5
+
+    @staticmethod
+    def full_circle_balanced(grid: npt.NDArray, radius: float = 10) -> float:
         """Calculate fitness for circle pattern formation with balanced penalties.
 
         Given a grid and a radius calculate fitness value based on alive cells 
@@ -362,6 +398,9 @@ class EA:
         """
         return self._basic_simulation(grid, FitnessFunctions.full_circle)
 
+    def _evolve_full_circle_balanced(self, grid: Grid) -> float:
+        return self._basic_simulation(grid, FitnessFunctions.full_circle_balanced)
+
     def _evolve_lower_half(self, grid: Grid) -> float:
         return self._basic_simulation(grid, FitnessFunctions.lower_half)
 
@@ -400,7 +439,7 @@ class EA:
                 grids,
             ),
         )
-        if generation % 349 == 0:
+        if generation % 50 == 0:
             plt.imshow(grids[np.argmin(results)].state[:, :, 0], cmap="inferno")
             plt.show()
 
@@ -521,6 +560,9 @@ class EA:
             case FitnessType.LOWER_HALF:
                 self._num_channels = FitnessFunctions.lower_half_channels
                 function = self._evolve_lower_half
+            case FitnessType.FULL_CIRCLE:
+                self._num_channels = FitnessFunctions.full_circle_balanced_channels
+                function = self._evolve_full_circle_balanced
 
         if function is None:
             logger.error("Current evolution type is not supported.")
@@ -542,12 +584,12 @@ def main() -> None:
     ea = EA(
         15,
         5,
-        FitnessType.FULL_CIRCLE,
+        FitnessType.FULL_CIRCLE_BALANCED,
         ea_type=EAType.BASIC,
         performance=True,
         pop_count=50,
-        grid_size=50,
-        gen_count=350
+        grid_size=30,
+        gen_count=350,
     )
     ea.evolve()
 

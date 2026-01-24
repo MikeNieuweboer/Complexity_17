@@ -174,7 +174,7 @@ class NN(nn.Module):
             C,
             3,
             padding=1,
-            padding_mode="circular",
+            padding_mode="zeros",
             groups=C,
             bias=False,
         )
@@ -183,7 +183,7 @@ class NN(nn.Module):
             C,
             3,
             padding=1,
-            padding_mode="circular",
+            padding_mode="zeros",
             groups=C,
             bias=False,
         )
