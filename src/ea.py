@@ -87,38 +87,49 @@ class FitnessFunctions:
     full_circle_channels = 5
 
     @staticmethod
-    def full_circle(grid: npt.NDArray, *, radius: float = 10) -> float:
-        """Calculate fitness for circle pattern formation.
+    def full_circle(grid: npt.NDArray, radius: float = 10) -> float:
+        """Calculate fitness for circle pattern formation with balanced penalties.
 
-        Evaluates how well the Neural CA produces a circular pattern at the grid
-        center. The fitness is the count of grid cells that deviate from the
-        expected circle pattern.
+        Given a grid and a radius calculate fitness value based on alive cells 
+        corresponding to a circular pattern. Inside the circle cells should have
+        a value of 1, whereas outside the circle they should be 0. The MSE of cells 
+        outside and inside the circle is calculated and added as the return value.
+        Final fitness value ranges from 0.0 - 2.0, where 0.0 denotes a perfect circle
+        and 2.0 an inverted pattern
 
         Args:
-        ----
-            grid: A 3D numpy array representing the Neural CA grid state.
-            radius: The target radius of the circle in grid units. Defaults to 10.
+            grid (npt.NDArray): Input grid with channel depth(H, W, C).
+            radius (float = 10): Radius of the circle.
 
         Returns:
-        -------
-            The fitness loss value (non-negative float). Lower values indicate better
-            circle pattern formation. Returns 0 for perfect circle formation.
+            float: The fitness value (between 0.0 and 2.0), 0.0 denotes perfect circle
+                   and 2.0 denotes a perfect inverted circle.
 
         """
         shape = grid.shape
         center = (shape[1] / 2, shape[0] / 2)
+        r_sq = radius**2
 
-        def circle(x: float, y: float) -> float:
-            return x * x + y * y - radius * radius
+        inside_count, outside_count = 0, 0
+        inside_loss, outside_loss = 0.0, 0.0
 
-        loss = 0
+        grid_alpha = grid[:, :, 0]
+
         for x, y in product(range(shape[1]), range(shape[0])):
-            result = circle(x - center[0], y - center[1])
-            alive_border = 0.1
-            active = grid[y, x, 0] > alive_border
-            if (result >= 0) == active:
-                loss += 1
-        return loss
+            dist_sq = (x - center[0])**2 + (y - center[1])**2
+            val = grid_alpha[y, x]
+
+            if dist_sq <= r_sq:
+                inside_loss += (val - 1.0) ** 2
+                inside_count += 1
+            else:
+                outside_loss += (val - 0.0) ** 2
+                outside_count += 1
+
+        mse_in = inside_loss / inside_count if inside_count else 0.0
+        mse_out = outside_loss / outside_count if outside_count else 0.0
+
+        return mse_in + mse_out
 
     lower_half_channels = 5
 
@@ -336,7 +347,7 @@ class EA:
         high = 96
 
         # NOTE: No
-        steps = 40
+        steps = int(self._gen.integers(low, high))
         grid.run_simulation(steps=steps)
         return fitness(grid.state)
 
@@ -389,7 +400,7 @@ class EA:
                 grids,
             ),
         )
-        if generation % 10 == 0:
+        if generation % 349 == 0:
             plt.imshow(grids[np.argmin(results)].state[:, :, 0], cmap="inferno")
             plt.show()
 
@@ -523,6 +534,9 @@ class EA:
                 case EAType.PERSISTENT:
                     self._evolve_step_persistent(gen, function)
 
+        # save the weights of the best final network
+        self.save_weights()
+
 
 def main() -> None:
     ea = EA(
@@ -531,8 +545,9 @@ def main() -> None:
         FitnessType.FULL_CIRCLE,
         ea_type=EAType.BASIC,
         performance=True,
-        pop_count=25,
-        grid_size=30,
+        pop_count=50,
+        grid_size=50,
+        gen_count=350
     )
     ea.evolve()
 
