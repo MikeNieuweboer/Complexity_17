@@ -222,8 +222,7 @@ class EA:
 
         self._optimizer: Optimizer = ng.optimizers.ParametrizedCMA(
             scale=0.8905,
-            popsize_factor=8,
-            elitist=True,
+            popsize_factor=3,
             diagonal=self._performance,
             high_speed=self._performance,
         ).set_name("CMAcustom", register=False)(
@@ -376,7 +375,12 @@ class EA:
         population = [self._optimizer.ask() for _ in range(self._pop_count)]
         logger.info("Starting generation %d", generation)
         grids = [
-            Grid(50, 50, self._num_channels, weights=individual.args)
+            Grid(
+                self._grid_size,
+                self._grid_size,
+                self._num_channels,
+                weights=individual.args,
+            )
             for individual in population
         ]
         results = list(
@@ -426,7 +430,8 @@ class EA:
         pool_size = 1024
         if self._grids == []:
             self._grids = [
-                (Grid(50, 50, self._num_channels), 0) for _ in range(pool_size)
+                (Grid(self._grid_size, self._grid_size, self._num_channels), 0)
+                for _ in range(pool_size)
             ]
 
         # Samples
@@ -434,7 +439,10 @@ class EA:
         indices = self._gen.choice(pool_size, (sample_size,), replace=False)  # pyright: ignore[reportCallIssue, reportArgumentType]
         samples: list[tuple[Grid, int]] = [self._grids[i] for i in indices]
         smallest_sample = min(range(sample_size), key=lambda x: samples[x][1])
-        samples[smallest_sample] = (Grid(50, 50, self._num_channels), 0)
+        samples[smallest_sample] = (
+            Grid(self._grid_size, self._grid_size, self._num_channels),
+            0,
+        )
 
         # Reproduction
         population = [self._optimizer.ask() for _ in range(self._pop_count)]
@@ -524,6 +532,7 @@ def main() -> None:
         ea_type=EAType.BASIC,
         performance=True,
         pop_count=25,
+        grid_size=30,
     )
     ea.evolve()
 
