@@ -137,15 +137,25 @@ class Grid:
 
         self._grid_state *= alive.float()
 
-    def step_test(self) -> npt.ndarray:
+    def step_test(self):
     # testing a simple CA update rule
         new_grid = np.copy(self._grid_state[:,:,0])
         for i in range(self._grid_state.shape[0]):
             for j in range(self._grid_state.shape[1]):
-                if any(self._grid_state[i-1:i+2, j, 0]) or any (self._grid_state[i, j-1:j+2, 0]):
+                if any(new_grid[i-1:i+2, j]) or any (new_grid[i, j-1:j+2]):
                     new_grid[i,j] = 1
         self._grid_state[:,:,0] = torch.tensor(new_grid)
-
+    
+    def step_test_speed(self, grid) ->np.ndarray:
+        new_grid = np.copy(self._grid_state[:,:,0])
+        for i in range(grid.shape[0]):
+            for j in range(grid.shape[1]):
+                if any(self._grid_state[i-1:i+2, j, 0]) or any (self._grid_state[i, j-1:j+2, 0]):
+                    new_grid[i,j] = 1
+        new_grid = torch.tensor(new_grid)
+        new_grid = new_grid.numpy()
+        return new_grid
+    
     def run_simulation(
         self,
         steps: int = 20,

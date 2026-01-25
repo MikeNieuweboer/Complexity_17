@@ -184,7 +184,11 @@ class MainWindow(QtWidgets.QWidget):
         self.grid.step_test()
         self.grid_view.update_grid(self.grid.state(layer=0))
         self.toolbar.set_grid(self.grid.state(layer=0))
-
+        # old_grid = self.grid.state(layer=0)
+        # new_grid = self.grid.step_test()
+        # self.grid_view.update_grid(new_grid)
+        # self.grid._grid_state[:,:,0] = torch.tensor(new_grid)
+        # self.toolbar.set_grid(new_grid)
         self.toolbar.update_analysis_tool_label(
             self.toolbar.analysis_tool.currentText()
         )
@@ -268,6 +272,7 @@ class GridView(FigureCanvas):
 
     def update_grid(self, new_grid: npt.NDArray) -> None:
         self.grid = new_grid
+
         self.im.set_data(self.grid)
         self.draw_idle()
 
