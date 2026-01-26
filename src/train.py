@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from torch.nn import functional
 
-#from analyze import animate_heatmaps
+# from analyze import animate_heatmaps, plot_state_heatmaps
 from ea import EA
 from grid import Grid
 from nn import NN
@@ -123,7 +123,7 @@ def generate_circle_target(grid_size: int, n_channels: int, device: torch.device
     # get center
     center_x = grid_size // 2
     center_y = grid_size // 2
-    radius = grid_size * 0.25
+    radius = grid_size * 0.3
 
     mask = (xx - center_x) ** 2 + (yy - center_y) ** 2 <= radius ** 2
     target[mask, 0] = 1.0
@@ -175,6 +175,11 @@ def train(grid_size: int = 30, n_channels: int = 5, hidden_size: int = 32,
             radius_range=damage_radius_range,
         )
 
+        # fix the seeding of the worst individual.
+        cx, cy = grid_size // 2, grid_size // 2
+        seed_state = torch.zeros((grid_size, grid_size, n_channels), device=device)
+        seed_state[cy, cx, :] = 1.0
+        batch_states[-1] = seed_state
 
         #TODO: change grid.py to incorporate batching better, instead of
         #this primitive for loop.
@@ -210,12 +215,21 @@ def train(grid_size: int = 30, n_channels: int = 5, hidden_size: int = 32,
 
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
+
+        # apply gradient L2 normalisation
+        for p in grid.NN.parameters():
+            if p.grad is not None:
+                p.grad /= (p.grad.norm() + 1e-8) # smalll epsilon to avoid division by 0
+
         optimizer.step()
         pool.update(indices, final_batch_tensor.detach())
 
         # logging the loss
         if step_idx % log_interval == 0 or step_idx == 1:
             print(f"step={step_idx} n_steps={n_steps} loss={loss.item():.6f}")
+            #! TEMPORARY PLOTTING THE ALIVE CHANNELS OF THE BATCH
+            # plot_state_heatmaps(final_batch_tensor[:, :, :, 0].permute(1, 2, 0).detach())
+            #! TEMPORARY PLOTTING THE ALIVE CHANNELS OF THE BATCH
 
 
     # to visualize the best weights
@@ -231,15 +245,15 @@ def main() -> None:
         "grid_size": 50,
         "n_channels": 5,
         "hidden_size": 32,
-        "steps": 50,
-        "min_steps": 64,
-        "max_steps": 96,
+        "steps": 200,
+        "min_steps": 20,
+        "max_steps": 20,
         "lr": 1e-3,
         "update_prob": 0.5,
         "masking_th": 0.1,
         "pool_size": 64,
         "batch_size": 16,
-        "log_interval": 2,
+        "log_interval": 10,
         "n_to_damage": 3,
         "damage_radius_range": (0.1, 0.2),
     }
