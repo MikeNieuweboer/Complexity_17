@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import numpy as np
 import torch
 from torch.nn import functional
 from tqdm import trange
@@ -11,7 +12,8 @@ from nn import NN
 
 if TYPE_CHECKING:
     import numpy.typing as npt
-    from torch.types import Device, Tensor
+    from torch._tensor import Tensor
+    from torch.types import Device
 
 
 class Grid:
@@ -62,6 +64,8 @@ class Grid:
         # Initialize weights for NN
         if weights is not None:
             self.set_weights_on_nn(weights)
+        else:
+            self.NN = None
 
         # Grid states: (pool, C, H, W)
         self._grids = torch.zeros(
@@ -301,24 +305,26 @@ class Grid:
         self._batch = batch
 
     def step_test(self):
-    # testing a simple CA update rule
-        new_grid = np.copy(self._grid_state[:,:,0])
+        # testing a simple CA update rule
+        new_grid = np.copy(self._grid_state[:, :, 0])
         for i in range(self._grid_state.shape[0]):
             for j in range(self._grid_state.shape[1]):
-                if any(new_grid[i-1:i+2, j]) or any (new_grid[i, j-1:j+2]):
-                    new_grid[i,j] = 1
-        self._grid_state[:,:,0] = torch.tensor(new_grid)
-    
-    def step_test_speed(self, grid) ->np.ndarray:
-        new_grid = np.copy(self._grid_state[:,:,0])
+                if any(new_grid[i - 1 : i + 2, j]) or any(new_grid[i, j - 1 : j + 2]):
+                    new_grid[i, j] = 1
+        self._grid_state[:, :, 0] = torch.tensor(new_grid)
+
+    def step_test_speed(self, grid) -> np.ndarray:
+        new_grid = np.copy(self._grid_state[:, :, 0])
         for i in range(grid.shape[0]):
             for j in range(grid.shape[1]):
-                if any(self._grid_state[i-1:i+2, j, 0]) or any (self._grid_state[i, j-1:j+2, 0]):
-                    new_grid[i,j] = 1
+                if any(self._grid_state[i - 1 : i + 2, j, 0]) or any(
+                    self._grid_state[i, j - 1 : j + 2, 0]
+                ):
+                    new_grid[i, j] = 1
         new_grid = torch.tensor(new_grid)
         new_grid = new_grid.numpy()
         return new_grid
-    
+
     def run_simulation(
         self,
         steps: int = 20,
@@ -351,16 +357,15 @@ class Grid:
         )
         return self._batch.detach().clone()
 
-    def state(self, layer = None) -> npt.NDArray:
+    def state(self, layer=None) -> npt.NDArray:
         if layer == None:
             if self._grid_state.device == "cpu":
                 return self._grid_state.numpy()
             return self._grid_state.detach().numpy()
-        else: 
+        else:
             if self._grid_state.device == "cpu":
-                return self._grid_state[:,:,layer].numpy()
-            return self._grid_state[:,:,layer].detach().numpy()
-            
+                return self._grid_state[:, :, layer].numpy()
+            return self._grid_state[:, :, layer].detach().numpy()
 
     @property
     def pool_state(self) -> npt.NDArray:
