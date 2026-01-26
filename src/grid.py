@@ -380,15 +380,14 @@ class Grid:
         )
         return self._batch.detach().clone()
 
-    def state(self, layer=None) -> npt.NDArray:
+    def state(self, layer: int | None = None) -> npt.NDArray:
         if layer == None:
             if self._grid_state.device == "cpu":
                 return self._grid_state.numpy()
             return self._grid_state.detach().numpy()
-        else:
-            if self._grid_state.device == "cpu":
-                return self._grid_state[:, :, layer].numpy()
-            return self._grid_state[:, :, layer].detach().numpy()
+        if self._grid_state.device == "cpu":
+            return self._grid_state[:, :, layer].numpy()
+        return self._grid_state[:, :, layer].detach().numpy()
 
     @property
     def pool_state(self) -> npt.NDArray:
