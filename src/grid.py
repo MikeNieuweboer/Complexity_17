@@ -325,6 +325,25 @@ class Grid:
         new_grid = new_grid.numpy()
         return new_grid
 
+    def step_test(self):
+    # testing a simple CA update rule
+        grid_copy = np.copy(self._grid_state[:,:,0])
+        for i in range(grid_copy.shape[0]):
+            for j in range(grid_copy.shape[1]):
+                if grid_copy[i-1:i+2,j].any() or grid_copy[i, j-1:j+2].any():
+                    self._grid_state[i,j] = 1
+        #self._grid_state[:,:,0] = torch.tensor(new_grid)
+    
+    def step_test_speed(self, grid) ->np.ndarray:
+        new_grid = np.copy(self._grid_state[:,:,0])
+        for i in range(new_grid.shape[0]):
+            for j in range(new_grid.shape[1]):
+                if any(new_grid[i-1:i+2, j]) or any (new_grid[i, j-1:j+2]):
+                    new_grid[i,j] = 1
+        new_grid = torch.tensor(new_grid)
+        new_grid = new_grid.numpy()
+        return new_grid
+    
     def run_simulation(
         self,
         steps: int = 20,
