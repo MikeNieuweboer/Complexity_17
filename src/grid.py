@@ -11,31 +11,47 @@ if TYPE_CHECKING:
     import numpy.typing as npt
     from torch.types import Device, Tensor
 
+from tqdm import trange
 
 class Grid:
     def __init__(
         self,
+        poolsize: int,
+        batch_size: int,
+        num_channels: int,
         width: int,
         height: int,
-        num_channels: int,
         *,
         seed: int = 43,
         device: Device | None = None,
-        weights: tuple[npt.NDArray, ...] | None = None,
+        weights: tuple[npt.NDArray, ...],
     ) -> None:
         self._width = width
         self._height = height
         self._num_channels = num_channels
+        self._batch_size = batch_size
 
         self._device = device if device is not None else torch.device("cpu")
 
+        # Initialize weights for NN
         if weights:
             self.set_weights_on_nn(weights)
 
-        # Grid state: (H, W, C)
-        self._grid_state = torch.zeros(
-            (height, width, num_channels), dtype=torch.float32, device=self._device
+        # Grid states: (B, C, H, W)
+        self._grids = torch.zeros(
+            (poolsize, num_channels, height, width), dtype=torch.float32, device=self._device
         )
+
+        # Points for all grid states 
+        self._points = torch.zeros(poolsize, dtype=torch.float32, device=self._device)
+
+        # Grids in current batch
+        self._batch_idxs: torch.Tensor | None = None
+        self.batch = torch.zeros(
+            (batch_size, num_channels, height, width), dtype=torch.float32, device=self._device
+        )
+        self._batch_points = torch.zeros(batch_size, dtype=torch.float32, device=self._device)
+
 
         self._seed = seed
         self._rng = torch.Generator(device=self._device)
@@ -81,25 +97,53 @@ class Grid:
         # set weights as attribute
         self._weights = weights
 
-    def seed_center(self, seed_vector: Tensor) -> None:
+    def seed_center(self, grid_idx: int, seed_vector: Tensor) -> None:
         """Initialize seed state vector in center of grid."""
         self.set_cell_state(
+            grid_idx=grid_idx,
             x=(self._width // 2),
             y=(self._height // 2),
             state_vector=seed_vector,
         )
 
-    def set_state(self, new_state: Tensor) -> None:
-        self._grid_state = new_state
+    def set_batch(self, grid_idxs) -> None:
+        idxs = torch.as_tensor(grid_idxs, dtype=torch.long, device="cpu")
 
-    def set_cell_state(self, x: int, y: int, state_vector: torch.Tensor) -> None:
+        if idxs.numel() != self._batch_size:
+            raise ValueError(
+                f"Length of indices {idxs.numel()} does not match batch size {self._batch_size}."
+            )
+
+        self._batch_idxs = idxs
+
+    def load_batch_from_pool(self) -> None:
+        if self._batch_idxs is None:
+            raise ValueError("Batch indices not set. Call set_batch(...) first.")
+        self.batch = self._grids[self._batch_idxs.to(self._device)].clone()
+        self._batch_points = self._points[self._batch_idxs.to(self._device)].clone()
+
+    def write_batch_back_to_pool(self) -> None:
+        """Optionally persist the evolved batch back into the pool."""
+        if self._batch_idxs is None:
+            raise ValueError("Batch indices not set.")
+        self._grids[self._batch_idxs.to(self._device)] = self.batch
+        self._points[self._batch_idxs.to(self._device)] = self._batch_points
+
+
+    def reset_state(self, grid_idx) -> None:
+        idxs = torch.as_tensor(grid_idx, dtype=torch.long, device=self._device)
+        self._grids[idxs] = 0
+        self._points[idxs] = 0
+
+
+    def set_cell_state(self, grid_idx:int, x: int, y: int, state_vector: torch.Tensor) -> None:
         """Alter state vector at (y,x) in the grid."""
         state_vector = state_vector.to(
-            device=self._device, dtype=self._grid_state.dtype
+            device=self._device, dtype=self._grids.dtype
         )
-        self._grid_state[y, x] = state_vector
+        self._grids[grid_idx, :,  y, x] = state_vector
 
-    def step(self, update_prob: float = 0.5, masking_th: float = 0.1) -> None:
+    def step(self, batch: Tensor, update_prob: float = 0.5, masking_th: float = 0.1):
         """Perform a single step of the grid's CA."""
         if update_prob > 1.0 or update_prob < 0.0:
             msg = f"update_prob must be in [0, 1], got {update_prob}"
@@ -110,91 +154,77 @@ class Grid:
 
         ### Neural network
         # Get derivative of current grid state
-        state_change = self.NN.forward(self._grid_state)
+        state_change = self.NN.forward(batch)
 
         ### Stochastic Update
         # Stochastic mask with a probability for each cell
         rand_mask = (
             torch.rand(
-                (self._height, self._width), generator=self._rng, device=self._device
+                (self.batch_size, self._height, self._width), generator=self._rng, device=self._device
             )
             < update_prob
-        ).to(self._grid_state.dtype)
+        ).to(self.batch.dtype)
 
-        # Expand dimensionality to alter all channels (H,W) -> (H, W, 1)
-        rand_mask = rand_mask.unsqueeze(-1)
+        # Expand dimensionality to alter all channels (B,H,W) -> (B, C, H, W)
+        rand_mask = rand_mask.unsqueeze(1)
+
         # Update grid stochastically
-        self._grid_state = self._grid_state + state_change * rand_mask
+        batch = batch + state_change * rand_mask
 
         ### Alive Masking
         # Allows wrapped alive masking with by multithreading on GPU
-        alpha = self._grid_state[:, :, 3:4]  # (H, W, 1)
-        alpha = alpha.permute(2, 0, 1).unsqueeze(0)  # (1, 1, H, W)
+        alpha = batch[:, 1:2, :, :]  # (B, 1, H, W)
         alpha = functional.pad(alpha, (1, 1, 1, 1), mode="circular")
-
         alive = functional.max_pool2d(alpha, 3, stride=1, padding=0) > masking_th
-        alive = alive.squeeze(0).permute(1, 2, 0)  # (H, W, 1)
+        batch *= alive.float()
+        return batch
 
-        self._grid_state *= alive.float()
-
-    def run_simulation(
+    def run_simulation_batch(
         self,
         steps: int = 20,
         update_prob: float = 0.5,
         masking_th: float = 0.1,
+        activate_print: bool = False,
     ):
         """Run the grid CA for a fixed number of steps."""
-        for t in range(steps):
-            state = self.step(update_prob=update_prob, masking_th=masking_th)
-            # TODO: make print toggleable
-            print(f"Step ({t}/{steps})\n")
-        return state
+        iterator = trange(steps) if activate_print else range(steps)
+        self.load_batch_from_pool()
+        batch = self.batch
+        for _ in iterator:
+            batch = self.step(batch=batch, update_prob=update_prob, masking_th=masking_th)
+        self.batch = batch
 
-    def deepcopy(self) -> Grid:
-        """More performant alternative to the built in deepcopy."""
-        copy = Grid(
-            self._width,
-            self._height,
-            self._num_channels,
-            seed=self._seed,
-            device=self._device,
-        )
-        copy.set_state(self._grid_state.detach().clone())
-        return copy
+    # GPU
+    @property
+    def batch_state(self) -> torch.Tensor:
+        return self.batch
+    
+    @property
+    def batch_size(self) -> int:
+        return self._batch_size
 
     @property
-    def state(self) -> npt.NDArray:
-        if self._grid_state.device == "cpu":
-            return self._grid_state.numpy()
-        return self._grid_state.detach().numpy()
+    def batch_points(self) -> npt.NDArray:
+        return self._batch_points.detach().cpu().numpy()
 
+    @property
+    def shape(self) -> tuple[int]:
+        return (self._height, self._width)
+
+    # CPU
     @property
     def weights(self) -> tuple[npt.NDArray, ...] | None:
         return self._weights
 
+    @property
+    def points(self) -> npt.NDArray:
+        return self._points.detach().cpu().numpy()
+
+
+
 
 def main():
-    # Settings
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    H, W, C = 64, 64, 16
-    seed = 123
-
-    # Create grid
-    grid = Grid(width=W, height=H, num_channels=C, seed=seed, device=device)
-
-    # Seed vector for the center cell
-    seed_vector = torch.zeros(C, dtype=torch.float32, device=device)
-    seed_vector[0:3] = 0.0  # RGB
-    seed_vector[3] = 1.0  # alpha channel
-    seed_vector[4:16] = 1.0  # state vector
-
-    # Initialize center
-    grid.seed_center(seed_vector)
-
-    # Run a few steps
-    grid.run_simulation(steps=20, update_prob=0.5, masking_th=0.1)
-
-    final_grid = grid.state
+    pass
 
 
 if __name__ == "__main__":

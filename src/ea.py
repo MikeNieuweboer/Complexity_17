@@ -24,6 +24,8 @@ following prompt:
 
 """
 
+
+from fitness import FitnessFunctions
 import csv
 import logging
 from collections.abc import Callable
@@ -72,50 +74,6 @@ class EAType(Enum):
     BASIC = 0
     PERSISTENT = 1
     REGENERATING = 2
-
-
-class FitnessFunctions:
-    """Provides static methods for evaluating Neural CA fitness.
-
-    Fitness functions measure how well a Neural CA configuration achieves
-    a desired pattern or behavior. Lower fitness values indicate better
-    performance.
-    """
-
-    full_circle_channels = 4
-
-    @staticmethod
-    def full_circle(grid: npt.NDArray, *, radius: float = 10) -> float:
-        """Calculate fitness for circle pattern formation.
-
-        Evaluates how well the Neural CA produces a circular pattern at the grid
-        center. The fitness is the count of grid cells that deviate from the
-        expected circle pattern.
-
-        Args:
-        ----
-            grid: A 3D numpy array representing the Neural CA grid state.
-            radius: The target radius of the circle in grid units. Defaults to 10.
-
-        Returns:
-        -------
-            The fitness loss value (non-negative float). Lower values indicate better
-            circle pattern formation. Returns 0 for perfect circle formation.
-
-        """
-        shape = grid.shape
-        center = (shape[1] / 2, shape[0] / 2)
-
-        def circle(x: float, y: float) -> float:
-            return x * x + y * y - radius * radius
-
-        loss = 0
-        for x, y in product(range(shape[1]), range(shape[0])):
-            result = circle(x - center[0], y - center[1])
-            alive_border = 0.1
-            active = grid[y, x, 0] > alive_border
-            loss += 1 if result >= 0 == active else 0
-        return loss
 
 
 class EA:
@@ -297,7 +255,7 @@ class EA:
             return 0
         return np.sum(np.abs(grid.weights[0] - 1))
 
-    def _basic_simulation(self, grid: Grid, fitness: Callable) -> float:
+    def _basic_simulation(self, grids: Grid, fitness: Callable) -> float:
         """Run Neural CA simulation and evaluate fitness.
 
         Simulates the Neural CA for a random number of steps within the paper's
@@ -319,8 +277,8 @@ class EA:
         high = 96
 
         steps = int(self._gen.integers(low, high))
-        grid.run_simulation(steps=steps)
-        return fitness(grid.state)
+        grids.run_simulation_batch(steps=steps)
+        return fitness(grids.batch_state)
 
     def _evolve_full_circle(self, grid: Grid) -> float:
         """Evaluate fitness for circle pattern formation.
@@ -381,6 +339,7 @@ class EA:
 
     def _evolve_step_persistent(
         self,
+        grids: Grid,
         generation: int,
         fitness_eval: Callable[[Grid], float],
     ) -> None:
@@ -397,50 +356,40 @@ class EA:
         fitness_eval: Fitness evaluation function that takes a Grid and returns a float.
 
         """
-        pool_size = 1024
-        if self._grids == []:
-            self._grids = [
-                (Grid(50, 50, self._num_channels), 0) for _ in range(pool_size)
-            ]
-
         # Samples
-        sample_size = 32
-        indices = self._gen.choice(pool_size, (sample_size,), replace=False)  # pyright: ignore[reportCallIssue, reportArgumentType]
-        samples: list[tuple[Grid, int]] = [self._grids[i] for i in indices]
-        smallest_sample = min(range(sample_size), key=lambda x: samples[x][1])
-        samples[smallest_sample] = (Grid(50, 50, self._num_channels), 0)
+        poolsize = 1024
+        sample_size = grids.batch_size
+
+        indices = self._gen.choice(poolsize, (sample_size,), replace=False)
+
+        best_pos_in_batch = int(np.argmin(grids.points[indices]))   # 0..B-1
+        best_pool_idx = int(indices[best_pos_in_batch])             # 0..poolsize-1
+
+        grids.reset_state(best_pool_idx)
+        grids.set_batch(indices)
+
 
         # Reproduction
         population = [self._optimizer.ask() for _ in range(self._pop_count)]
 
         # Fitness evaluation
         results = []
-        new_samples = []
         logger.info("Starting generation %d", generation)
         for i, individual in enumerate(population):
             mean = 0
-            for j, sample in enumerate(samples):
-                copy = sample[0].deepcopy()
-                copy.set_weights(individual.args)
-                result = fitness_eval(copy)
-                mean += result
+            grids.set_weights_on_nn(individual.args)
 
-                # Pick the worst evolutions of the grids as the
-                # new samples for the next generation.
-                if i == 0:
-                    new_samples.append((copy, result))
-                elif result > new_samples[j][1]:
-                    new_samples[j] = (copy, result)
+            # Writes from pool to batch, runs simulation and gets losses.
+            losses = fitness_eval(grids)
+            mean = np.mean(losses)
 
             # Mean of loss, mimicking the batched gradient descent.
-            mean /= sample_size
             results.append(mean)
 
         # Place the newly generated samples back
-        for i, j in enumerate(indices):
-            self._grids[j] = new_samples[i]
+        grids.write_batch_back_to_pool()
 
-        best = min(results)
+        best = np.min(results)
         mean = np.mean(results)
         std = np.std(results)
         self._fitnesses.append(results)
@@ -483,7 +432,8 @@ class EA:
                 case EAType.BASIC:
                     self._evolve_step_basic(gen, function)
                 case EAType.PERSISTENT:
-                    self._evolve_step_persistent(gen, function)
+                    grids = Grid(32, 50, 50, self._num_channels)
+                    self._evolve_step_persistent(gen, grids, function)
 
 
 def main() -> None:  # noqa: D103
