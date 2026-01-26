@@ -117,7 +117,7 @@ class FitnessFunctions:
             result = in_circle(x - center[0], y - center[1])
             target = 1.0 if result else 0.0
             current = grid[y, x, 0]
-            loss += (current - target) ** 2 #L2 loss
+            loss += (current - target) ** 2  # L2 loss
         return loss
 
     full_circle_balanced_channels = 5
@@ -126,9 +126,9 @@ class FitnessFunctions:
     def full_circle_balanced(grid: npt.NDArray, radius: float = 10) -> float:
         """Calculate fitness for circle pattern formation with balanced penalties.
 
-        Given a grid and a radius calculate fitness value based on alive cells 
+        Given a grid and a radius calculate fitness value based on alive cells
         corresponding to a circular pattern. Inside the circle cells should have
-        a value of 1, whereas outside the circle they should be 0. The MSE of cells 
+        a value of 1, whereas outside the circle they should be 0. The MSE of cells
         outside and inside the circle is calculated and added as the return value.
         Final fitness value ranges from 0.0 - 2.0, where 0.0 denotes a perfect circle
         and 2.0 an inverted pattern
@@ -152,7 +152,7 @@ class FitnessFunctions:
         grid_alpha = grid[:, :, 0]
 
         for x, y in product(range(shape[1]), range(shape[0])):
-            dist_sq = (x - center[0])**2 + (y - center[1])**2
+            dist_sq = (x - center[0]) ** 2 + (y - center[1]) ** 2
             val = grid_alpha[y, x]
 
             if dist_sq <= r_sq:
@@ -263,19 +263,24 @@ class EA:
         )
 
         w1 = self._gen.uniform(-1, 1, weight_shapes[0])
-        w2 = np.zeros(weight_shapes[1]) # output layer should start with 0s
+        w2 = np.zeros(weight_shapes[1])  # output layer should start with 0s
 
         param.value = (
             (w1, w2),
             {},
         )
 
-        self._optimizer: Optimizer = ng.optimizers.ParametrizedCMA(
-            scale=0.8905,
-            popsize_factor=3,
-            diagonal=self._performance,
-            high_speed=self._performance,
-        ).set_name("CMAcustom", register=False)(
+        # self._optimizer: Optimizer = ng.optimizers.ParametrizedCMA(
+        #     scale=0.8905,
+        #     popsize_factor=3,
+        #     diagonal=self._performance,
+        #     high_speed=self._performance,
+        # ).set_name("CMAcustom", register=False)(
+        #     param,
+        #     num_workers=self._pop_count,
+        #     budget=self._pop_count * self._gen_count,
+        # )
+        self._optimizer = ng.optimizers.TwoPointsDE(
             param,
             num_workers=self._pop_count,
             budget=self._pop_count * self._gen_count,
@@ -293,13 +298,15 @@ class EA:
             writer = csv.writer(file)
             writer.writerows(self._fitnesses)
 
-    def save_weights(self) -> None:
+    def save_weights(self, *, suffix: str = "") -> None:
         """Save best network weights to disk.
 
         Persists the weights of the best-performing individual from the final
         generation.
         """
-        file_path = weights_dir / f"{self._fitness_type.name}_{self._ea_type.name}.npz"
+        file_path = (
+            weights_dir / f"{self._fitness_type.name}_{self._ea_type.name}{suffix}.npz"
+        )
         weights = self._optimizer.recommend().args
         np.savez(file_path, *weights)
 
@@ -443,8 +450,7 @@ class EA:
             ),
         )
         if generation % 50 == 0:
-            plt.imshow(grids[np.argmin(results)].state[:, :, 0], cmap="inferno")
-            plt.show()
+            self.save_weights(suffix=str(generation))
 
         best = min(results)
         mean = np.mean(results)
@@ -592,9 +598,12 @@ def main() -> None:
         performance=True,
         pop_count=100,
         grid_size=35,
-        gen_count=200,
+        gen_count=1000,
     )
     ea.evolve()
+    ea.save_optimizer()
+    ea.save_weights()
+    ea.save_stats()
 
 
 if __name__ == "__main__":
