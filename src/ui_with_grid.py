@@ -184,11 +184,6 @@ class MainWindow(QtWidgets.QWidget):
         self.grid.step_test()
         self.grid_view.update_grid(self.grid.state(layer=0))
         self.toolbar.set_grid(self.grid.state(layer=0))
-        # old_grid = self.grid.state(layer=0)
-        # new_grid = self.grid.step_test()
-        # self.grid_view.update_grid(new_grid)
-        # self.grid._grid_state[:,:,0] = torch.tensor(new_grid)
-        # self.toolbar.set_grid(new_grid)
         self.toolbar.update_analysis_tool_label(
             self.toolbar.analysis_tool.currentText()
         )
@@ -202,7 +197,7 @@ class MainWindow(QtWidgets.QWidget):
 
     def set_sim_speed(self, speed: int):
         self.speed = speed
-        self.timer.setInterval(1000 // self.speed)
+        self.timer.setInterval(100 // self.speed)
 
     def set_erase_size(self, size: int):
         self.erase_size = size
@@ -222,7 +217,14 @@ class MainWindow(QtWidgets.QWidget):
         self.grid_view.update_grid(self.grid_view.grid)
 
     def reset_grid(self):
-        self.grid_view.grid = np.ones((gridsize, gridsize), dtype=int)
+        self.grid_view.grid = np.zeros((gridsize, gridsize), dtype=int)
+        
+        # self.seed_vector = torch.zeros(5, dtype=torch.float32, device=None)
+        # self.seed_vector[0] = 1.0  # aliveness
+        # self.seed_vector[1:5] = 0.0  # alpha channel
+        # self.grid.seed_center(self.seed_vector)
+        # self.grid_view.grid = self.grid.state(layer=0)
+
         self.grid_view.update_grid(self.grid_view.grid)
         self.toolbar.update_analysis_tool_label(
             self.toolbar.analysis_tool.currentText()
@@ -271,16 +273,15 @@ class GridView(FigureCanvas):
         self.mpl_connect("button_release_event", self.on_release)
 
     def update_grid(self, new_grid: npt.NDArray) -> None:
-        self.grid = new_grid
-
-        self.im.set_data(self.grid)
+        #self.grid_source._grid_state[:,:,0] = torch.tensor(new_grid)
+        self.im.set_data(self.grid_source._grid_state[:,:,0])
         self.draw_idle()
 
     def on_press(self, event: MouseEvent) -> None:
         self.active = True
         self.draw_cells(event)
 
-    def on_release(self, _event: MouseEvent) -> None:
+    def on_release(self, event: MouseEvent) -> None:
         self.active = False
 
     def draw_cells(self, event: MouseEvent) -> None:
