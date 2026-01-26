@@ -142,7 +142,7 @@ class NN(nn.Module):
             Concatenates: [Sobel_X, Sobel_Y, Identity]
 
         """
-        _, C, _ = state_grid.shape  # noqa: N806
+        _, C, _, _ = state_grid.shape  # noqa: N806
 
         user_device = state_grid.device
         user_dtype = state_grid.dtype

@@ -89,46 +89,6 @@ class Grid:
         # set weights as attribute
         self._weights = weights
 
-    def set_weights_on_nn(self, weights: tuple[npt.NDArray, ...]) -> None:
-        """Load pre-trained weights into the neural network.
-
-        Args:
-            weights: Tuple of two numpy arrays (hidden_layer, output_layer) containing
-                    the weights for the hidden and output layers respectively.
-
-        Raises:
-            ValueError: If weights tuple doesn't have exactly 2 elements.
-
-        """
-        if len(weights) != 2:  # noqa: PLR2004
-            raise ValueError(  # noqa: TRY003
-                "weights should have dimension 2 (hidden_layer, output_layer)",  # noqa: EM101
-                f", got {len(weights)}",
-            )
-
-        # ( (3*channel x hidden_n), (hidden_n x channel) )
-        hidden_layer, output_layer = weights
-
-        # Convert to tensors and set device/dtype, and transform
-        # #(In, Out) -> (Out, In, 1, 1)
-        hidden_tens = torch.from_numpy(hidden_layer).to(
-            self._device,
-            dtype=torch.float32,
-        )
-        hidden_tens = hidden_tens.permute(1, 0).unsqueeze(-1).unsqueeze(-1)
-        output_tens = torch.from_numpy(output_layer).to(
-            self._device,
-            dtype=torch.float32,
-        )
-        output_tens = output_tens.permute(1, 0).unsqueeze(-1).unsqueeze(-1)
-
-        # create NN instance and load weights
-        self.NN = NN(self._num_channels, hidden_layer.shape[1]).to(self._device)
-        self.NN.load_weights(hidden_tens, output_tens)
-
-        # set weights as attribute
-        self._weights = weights
-
     def seed_center(self, seed_vector: Tensor) -> None:
         """Initialize seed state vector in center of grid."""
         self.set_cell_state(
@@ -223,8 +183,9 @@ class Grid:
             state = self._grid_state.detach().clone().unsqueeze(0)
             for _ in range(steps):
                 self.step(update_prob=update_prob, masking_th=masking_th)
-                state = torch.cat( (state,
-                                    self._grid_state.detach().clone().unsqueeze(0) ), 0)
+                state = torch.cat(
+                    (state, self._grid_state.detach().clone().unsqueeze(0)), 0
+                )
             return state
 
         # otherwise only return final state
@@ -257,6 +218,14 @@ class Grid:
     @property
     def weights(self) -> tuple[npt.NDArray, ...] | None:
         return self._weights
+
+    @property
+    def empty(self) -> Tensor:
+        empty = torch.zeros(
+            self._num_channels, dtype=torch.float32, device=self._device
+        )
+        empty.numpy()[2] = 1
+        return empty
 
 
 def main():

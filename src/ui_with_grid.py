@@ -236,12 +236,13 @@ class MainWindow(QtWidgets.QWidget):
 
     def erase_function(self, row: int, col: int):
         coordinates = get_filled_circle_coordinates(row, col, self.erase_size)
+        empty = self.grid.empty
         for r, c in coordinates:
             if (
                 0 <= r < self.grid_view.grid.shape[0]
                 and 0 <= c < self.grid_view.grid.shape[1]
             ):
-                self.grid_view.grid[r, c] = 0
+                self.grid.set_cell_state(c, r, empty)
         self.grid_view.update_grid(self.grid_view.grid)
 
     def reset_grid(self):
