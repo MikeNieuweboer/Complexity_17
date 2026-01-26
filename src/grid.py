@@ -32,18 +32,9 @@ class Grid:
         if weights:
             self.set_weights_on_nn(weights)
 
-        # Grid state: (H, W, C)
-        self._grid_state = torch.zeros(
-            (height, width, num_channels), dtype=torch.float32, device=self._device
-        )
-
         self._seed = seed
         self._rng = torch.Generator(device=self._device)
         self._rng.manual_seed(seed)
-        seed_center = [1 for i in range(num_channels)]
-        if num_channels > 1:
-            seed_center[1] = 0
-        self.seed_center(torch.Tensor(seed_center))
 
     def set_weights_on_nn(self, weights: tuple[npt.NDArray, ...]) -> None:
         """Load pre-trained weights into the neural network.
@@ -85,12 +76,45 @@ class Grid:
         # set weights as attribute
         self._weights = weights
 
-    def seed_center(self, seed_vector: Tensor) -> None:
+    def set_weights_on_nn_from_tens(
+        self, weights: tuple[torch.Tensor, torch.Tensor]
+    ) -> None:
+        """Load pre-trained weights in Conv2d tensor format.
+
+        Expected shapes:
+            hidden: (hidden, 3*C, 1, 1)
+            output: (C, hidden, 1, 1)
+        """
+        if len(weights) != 2:  # noqa: PLR2004
+            raise ValueError(  # noqa: TRY003
+                "weights should have dimension 2 (hidden_layer, output_layer)",  # noqa: EM101
+                f", got {len(weights)}",
+            )
+
+        hidden_tens, output_tens = weights
+        hidden_tens = hidden_tens.to(self._device, dtype=torch.float32)
+        output_tens = output_tens.to(self._device, dtype=torch.float32)
+
+        self.NN = NN(self._num_channels, hidden_tens.shape[0]).to(self._device)
+        self.NN.load_weights(hidden_tens, output_tens)
+
+        self._weights = (hidden_tens.detach().cpu().numpy(),
+                         output_tens.detach().cpu().numpy())
+
+    def clear_and_seed(self) -> None:
         """Initialize seed state vector in center of grid."""
+
+        seed_vec = torch.Tensor([1 for i in range(self._num_channels)])
+
+        self._grid_state = torch.zeros(
+            (self._height, self._height, self._num_channels), dtype=torch.float32,
+            device=self._device,
+        )
+
         self.set_cell_state(
             x=(self._width // 2),
             y=(self._height // 2),
-            state_vector=seed_vector,
+            state_vector=seed_vec,
         )
 
     def set_state(self, new_state: Tensor) -> None:
@@ -140,7 +164,7 @@ class Grid:
         alive = functional.max_pool2d(alpha, 3, stride=1, padding=0) > masking_th
         alive = alive.squeeze(0).permute(1, 2, 0)  # (H, W, 1)
 
-        self._grid_state *= alive.float()
+        self._grid_state = self._grid_state * alive.float().detach()
 
     def run_simulation(
         self,

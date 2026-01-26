@@ -222,7 +222,7 @@ class NN(nn.Module):
 
         perception_grid = self._perceive(input_tensor)  # ((B,) 3*C, H, W)
         hidden = torch.relu(self.hidden_layer(perception_grid))
-        delta_s = self.output_layer(hidden)  # ((B,) C, H, W)
+        delta_s = self.output_layer(hidden) # ((B,) C, H, W)
 
         # revert back to ((B,) H, W, C)
         delta_s = self._to_channels_last(delta_s)
