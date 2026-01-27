@@ -205,18 +205,18 @@ def train(
 def main() -> None:
     params = {
         "grid_size": 50,
-        "n_channels": 5,
-        "hidden_size": 32,
-        "steps": 200,
-        "min_steps": 20,
-        "max_steps": 20,
-        "lr": 1e-3,
+        "n_channels": 8,
+        "hidden_size": 64,
+        "steps": 1000,
+        "min_steps": 50,
+        "max_steps": 90,
+        "lr": 2e-3,
         "update_prob": 0.5,
         "masking_th": 0.1,
         "pool_size": 64,
-        "batch_size": 16,
+        "batch_size": 8,
         "log_interval": 10,
-        "n_to_damage": 3,
+        "n_to_damage": 2,
         "damage_radius_range": (0.1, 0.2),
     }
     train(**params)

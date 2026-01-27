@@ -7,8 +7,6 @@ import torch
 from torch.nn import functional
 from tqdm import trange
 
-import numpy as np
-
 from nn import NN
 
 if TYPE_CHECKING:
@@ -82,7 +80,7 @@ class Grid:
         self._seed = seed
         self._rng = torch.Generator(device=self._device)
         self._rng.manual_seed(seed)
-        self.clear_and_seed()
+        self.clear_and_seed(grid_idx=torch.arange(poolsize, device=self._device))
 
     def set_weights_on_nn(self, weights: tuple[npt.NDArray, ...]) -> None:
         """Load pre-trained weights into the internal neural network.
@@ -92,6 +90,7 @@ class Grid:
 
         Raises:
             ValueError: If weights tuple doesn't have exactly 2 elements.
+
         """
         if len(weights) != 2:  # noqa: PLR2004
             raise ValueError(  # noqa: TRY003
@@ -129,6 +128,7 @@ class Grid:
 
         Raises:
             ValueError: If weights tuple doesn't have exactly 2 elements.
+
         """
         if len(weights) != 2:  # noqa: PLR2004
             raise ValueError(  # noqa: TRY003
@@ -256,7 +256,7 @@ class Grid:
 
     def step(self, batch: Tensor, update_prob: float = 0.5, masking_th: float = 0.1) -> Tensor:
         """Run one CA update step on a batched tensor (B, C, H, W)."""
-        if not hasattr(self, "NN"):
+        if self.NN is None:
             raise RuntimeError("NN not initialized. Call set_weights_on_nn(...) first.")
         if batch.dim() != 4:
             raise ValueError(f"batch must be 4D (B,C,H,W), got dim={batch.dim()}")
@@ -306,25 +306,6 @@ class Grid:
             batch = self.step(batch=batch, update_prob=update_prob, masking_th=masking_th)
         self._batch = batch
 
-    def step_test(self) -> None:
-        # testing a simple CA update rule
-        new_grid = np.copy(self._grid_state[:, :, 0])
-        for i in range(self._grid_state.shape[0]):
-            for j in range(self._grid_state.shape[1]):
-                if any(new_grid[i - 1 : i + 2, j]) or any(new_grid[i, j - 1 : j + 2]):
-                    new_grid[i, j] = 1
-        self._grid_state[:, :, 0] = torch.tensor(new_grid)
-
-    def step_test_speed(self, grid) -> np.ndarray:
-        new_grid = np.copy(self._grid_state[:, :, 0])
-        for i in range(new_grid.shape[0]):
-            for j in range(new_grid.shape[1]):
-                if any(new_grid[i - 1 : i + 2, j]) or any(new_grid[i, j - 1 : j + 2]):
-                    new_grid[i, j] = 1
-        new_grid = torch.tensor(new_grid)
-        new_grid = new_grid.numpy()
-        return new_grid
-
     def run_simulation(
         self,
         steps: int = 20,
@@ -358,15 +339,6 @@ class Grid:
         )
         return self._batch.detach().clone()
 
-    def state(self, layer: int | None = None) -> npt.NDArray:
-        if layer == None:
-            if self._grid_state.device == "cpu":
-                return self._grid_state.numpy()
-            return self._grid_state.detach().numpy()
-        if self._grid_state.device == "cpu":
-            return self._grid_state[:, :, layer].numpy()
-        return self._grid_state[:, :, layer].detach().numpy()
-
     @property
     def pool_state(self) -> npt.NDArray:
         """Numpy view of the entire pool state. Shape: (pool, C, H, W)."""
@@ -393,19 +365,33 @@ class Grid:
     def weights(self) -> tuple[npt.NDArray, ...] | None:
         """Current NN weights tuple, or None if not set."""
         return getattr(self, "_weights", None)
-=======
-def main():
-    # Settings
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    height, width, channels = 64, 64, 16
-    seed = 123
 
-    # Create grid
+def main():
+    # settings
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    height, width, channels = 50, 50, 8
+    seed = 123
+    pool_size = 64
+    batch_size = 8
+    hidden_size = 64
+
+    # random init weights
+    w1 = np.random.randn(channels * 3, hidden_size).astype(np.float32)
+    w2 = np.random.randn(hidden_size, channels).astype(np.float32)
+
     grid = Grid(
-        width=width, height=height, num_channels=channels, seed=seed, device=device
+        poolsize=pool_size,
+        batch_size=batch_size,
+        width=width,
+        height=height,
+        num_channels=channels,
+        seed=seed,
+        device=device,
+        weights=(w1, w2),
     )
 
-    # Run a few steps
+    # load batch and run a few steps
+    idxs = grid.sample_batch()
     grid.run_simulation(steps=20, update_prob=0.5, masking_th=0.1)
 
 
