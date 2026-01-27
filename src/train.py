@@ -1,9 +1,11 @@
 from pathlib import Path
 
+import numpy as np
 import torch
 from torch.nn import functional
-from tqdm import trange
 
+# from analyze import animate_heatmaps, plot_state_heatmaps
+from ea import EA
 from grid import Grid
 from nn import NN
 
@@ -11,159 +13,200 @@ root_dir = Path(__file__).parent.parent
 weights_dir = root_dir / "weights"
 weights_dir.mkdir(exist_ok=True, parents=True)
 
+class Pool:
+    """Store batches of states (grid tensors) for training."""
 
-def damage_batch_bchw(
+    def __init__(self, pool_size: int,
+                 height: int,
+                 width: int,
+                 n_channels: int,
+                 device: torch.device):
+        self.pool_size = pool_size
+        self.height = height
+        self.width = width
+        self.n_channels = n_channels
+        self.device = device
+
+        # Initialize pool with zeros
+        self._states = torch.zeros(
+            (pool_size, height, width, n_channels),
+            dtype=torch.float32,
+            device=device,
+        )
+
+        # Fill pool with initial seeds
+        self._fill_with_seeds()
+
+    def _fill_with_seeds(self):
+        """Reset the entire pool to seed states."""
+        self._states.zero_()
+
+        # Center coordinate
+        cx, cy = self.width // 2, self.height // 2
+
+        # Seed: Alpha=0, Hidden=1+
+        self._states[:, cy, cx, :] = 1.0
+
+    def sample(self, batch_size: int):
+        """Sample a batch of states from the pool.
+
+        Returns:
+            indices: Indices of the sampled states in the pool.
+            batch_states: The batch of states (Batch, H, W, C).
+        """
+        # Random indices
+        indices = np.random.choice(self.pool_size, batch_size, replace=False)
+        batch_states = self._states[indices].clone()
+
+        return indices, batch_states
+
+    def update(self, indices, new_states):
+        """Update the pool with new states."""
+        self._states[indices] = new_states.detach()
+
+
+def damage_batch(
     states: torch.Tensor,
-    *,
+    device: torch.device,
     radius_range: tuple[float, float] = (0.1, 0.4),
 ) -> torch.Tensor:
     """Apply a circular damage mask to a batch of states (zeros out a region).
 
     Args:
-        states: (B, C, H, W) tensor
-        radius_range: (min, max) radius as fraction of image width
+        states: (B, H, W, C) tensor
+        device: torch device
+        radius_range: tuple of (min, max) radius as fraction of image size
 
-    Returns:
-        Damaged states tensor (B, C, H, W).
     """
-    if states.dim() != 4:
-        raise ValueError(f"states must be 4D (B,C,H,W), got dim={states.dim()}")
-
-    B, C, H, W = states.shape
+    B, H, W, C = states.shape
     r_min, r_max = radius_range
-    device = states.device
 
-    damaged = states.clone()
+    damaged_states = states.clone()
 
-    # Base grid (1, H, W)
+    # (H, W)
     y = torch.arange(H, device=device)
     x = torch.arange(W, device=device)
     grid_y, grid_x = torch.meshgrid(y, x, indexing="ij")
-    grid_x = grid_x.unsqueeze(0)
-    grid_y = grid_y.unsqueeze(0)
 
-    # Random centers (B, 1, 1)
-    center_x = (torch.rand(B, device=device) * W).view(B, 1, 1)
-    center_y = (torch.rand(B, device=device) * H).view(B, 1, 1)
+    # Expand to (1, H, W) so it can broadcast against (B, 1, 1)
+    grid_x = grid_x.unsqueeze(0)  # (1, H, W)
+    grid_y = grid_y.unsqueeze(0)  # (1, H, W)
 
-    # Random radius (B, 1, 1) in pixels
+    # Random centers per batch element: (B, 1, 1)
+    center_x = torch.rand(B, device=device) * W
+    center_y = torch.rand(B, device=device) * H
+    center_x = center_x.view(B, 1, 1)
+    center_y = center_y.view(B, 1, 1)
+
+    # Random radius per batch element: (B, 1, 1)
     radius_frac = torch.rand(B, device=device) * (r_max - r_min) + r_min
     radius_px = (radius_frac * W).view(B, 1, 1)
 
-    # (B, H, W)
+    # Squared distances: (B, H, W)
     dist_sq = (grid_x - center_x) ** 2 + (grid_y - center_y) ** 2
 
-    # Keep outside circle: (B, 1, H, W)
-    mask = (dist_sq > radius_px**2).unsqueeze(1)
+    # Keep outside circle (B, H, W, 1)
+    mask = (dist_sq > radius_px ** 2).unsqueeze(-1)
 
-    damaged *= mask.to(damaged.dtype)
-    return damaged
+    # Apply to all channels
+    damaged_states *= mask.to(damaged_states.dtype)
+    return damaged_states
 
 
-def generate_circle_target_chw(grid_size: int, n_channels: int, device: torch.device) -> torch.Tensor:
-    """Create (C, H, W) target with a filled circle in the alpha channel (channel 0)."""
-    target = torch.zeros((n_channels, grid_size, grid_size), device=device, dtype=torch.float32)
+
+def generate_circle_target(grid_size: int, n_channels: int, device: torch.device) -> torch.Tensor:
+    """Create (H, W, C) target with a circle in alpha channel.
+
+    The circle has a radius 1/4 of the grid size.
+    """
+    target = torch.zeros((grid_size, grid_size, n_channels), device=device)
 
     yy = torch.arange(grid_size, device=device).view(-1, 1)
     xx = torch.arange(grid_size, device=device).view(1, -1)
 
-    cx = grid_size // 2
-    cy = grid_size // 2
+    # get center
+    center_x = grid_size // 2
+    center_y = grid_size // 2
     radius = grid_size * 0.3
 
-    mask = (xx - cx) ** 2 + (yy - cy) ** 2 <= radius**2
-    target[0, mask] = 1.0
+    mask = (xx - center_x) ** 2 + (yy - center_y) ** 2 <= radius ** 2
+    target[mask, 0] = 1.0
     return target
 
 
-def train(
-    grid_size: int = 30,
-    n_channels: int = 5,
-    hidden_size: int = 32,
-    steps: int = 1000,
-    min_steps: int = 64,
-    max_steps: int = 96,
-    lr: float = 1e-3,
-    update_prob: float = 0.5,
-    masking_th: float = 0.1,
-    pool_size: int = 64,
-    batch_size: int = 16,
-    log_interval: int = 50,
-    n_to_damage: int = 3,
-    damage_radius_range: tuple[float, float] = (0.1, 0.4),
-) -> None:
-    """Train the NN inside Grid to form a circular alpha pattern, using Grid's internal pool+batch."""
-    device = torch.device("cpu" if torch.cuda.is_available() else "cpu")
-    print(device)
+def train(grid_size: int = 30, n_channels: int = 5, hidden_size: int = 32,
+          steps: int = 1000, min_steps: int = 64, max_steps: int = 96,
+          lr: float = 1e-3, update_prob: float = 0.5, masking_th: float = 0.1,
+          pool_size: int = 64, batch_size: int = 16, log_interval: int = 50,
+          n_to_damage: int = 3, damage_radius_range: tuple = (0.1, 0.4)) -> None:
+    """Train the neural net for the Grid, to form a cirular pattern on the grid."""
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Target alpha: (1, H, W)
-    target = generate_circle_target_chw(grid_size, n_channels, device)
-    target_alpha = target[0:1]  # (1, H, W)
+    # create target circular pattern for given grid size.
+    target = generate_circle_target(grid_size, n_channels, device)
+    target_alpha = target[:, :, 0:1]
 
-    # Grid with internal pool + batch buffer (B, C, H, W)
-    grid = Grid(
-        poolsize=pool_size,
-        batch_size=batch_size,
-        num_channels=n_channels,
-        width=grid_size,
-        height=grid_size,
-        device=device,
-    )
+    #initialize pool of grid and neural nets
+    grid = Grid(width=grid_size, height=grid_size, num_channels=n_channels, device=device)
     grid.NN = NN(n_channels, hidden_size).to(device)
+    pool = Pool(pool_size, grid_size, grid_size, n_channels, device)
 
-    # Seed entire pool once
-    grid.clear_and_seed(grid_idx=torch.arange(pool_size, device=device), in_batch=False)
-
-    # For saving best weights
+    # for saving best weights
     best_loss = float("inf")
     best_weights_path = weights_dir / "TRAIN_BEST_TENS.pt"
 
+    # init optimizer
     optimizer = torch.optim.Adam(grid.NN.parameters(), lr=lr)
 
+    # main training loop
     for step_idx in range(1, steps + 1):
-        # Sample indices + load batch from pool into grid._batch (B, C, H, W)
-        idxs = grid.sample_batch()  # idxs on CPU
-        batch = grid.batch_state  # (B, C, H, W)
+        indices, batch_states = pool.sample(batch_size)
 
-        # Sort batch by ascending loss (best first)
+        # sort batch_states by ascending loss-value
         with torch.no_grad():
-            target_batch = target_alpha.unsqueeze(0).expand(batch_size, 1, grid_size, grid_size)  # (B,1,H,W)
-            losses = functional.mse_loss(batch[:, 0:1], target_batch, reduction="none")  # (B,1,H,W)
-            loss_per_sample = losses.mean(dim=(1, 2, 3))  # (B,)
-            sort_idx = torch.argsort(loss_per_sample)  # on device
+            target_batch = target_alpha.unsqueeze(0).repeat(batch_size, 1, 1, 1)
+            losses = functional.mse_loss(batch_states[:, :, :, 0:1], target_batch, reduction='none')
+            loss_per_sample = losses.mean(dim=[1, 2, 3])
 
-            # Reorder batch and indices to match (best -> worst)
-            batch = batch[sort_idx]
-            idxs = idxs[sort_idx.detach().cpu()]
-            grid._batch = batch
-            grid._batch_idxs = idxs  # keep mapping correct for write-back
+            sort_idx = torch.argsort(loss_per_sample)
+            indices = indices[sort_idx.cpu().numpy()]
+            batch_states = batch_states[sort_idx]
 
-        # Damage top n (best-performing) batch states
-        if n_to_damage > 0:
-            grid._batch[:n_to_damage] = damage_batch_bchw(
-                grid._batch[:n_to_damage],
-                radius_range=damage_radius_range,
-            )
-
-        # Force reseed worst individual in the batch
-        grid.clear_and_seed(grid_idx=torch.tensor([batch_size - 1], device=device), in_batch=True)
-
-        # Evolve the whole batch together
-        n_steps = int(torch.randint(min_steps, max_steps + 1, (1,), device=device).item())
-        grid.run_simulation_batch(
-            steps=n_steps,
-            update_prob=update_prob,
-            masking_th=masking_th,
-            activate_print=False,
+        # damage top batch states
+        batch_states[:n_to_damage] = damage_batch(
+            batch_states[:n_to_damage],
+            device=device,
+            radius_range=damage_radius_range,
         )
 
-        final_batch = grid.batch_state  # (B, C, H, W)
+        # fix the seeding of the worst individual.
+        cx, cy = grid_size // 2, grid_size // 2
+        seed_state = torch.zeros((grid_size, grid_size, n_channels), device=device)
+        seed_state[cy, cx, :] = 1.0
+        batch_states[-1] = seed_state
 
-        # Batch loss on alpha channel
-        target_batch = target_alpha.unsqueeze(0).expand(batch_size, 1, grid_size, grid_size)
-        loss = functional.mse_loss(final_batch[:, 0:1], target_batch)
+        #TODO: change grid.py to incorporate batching better, instead of
+        #this primitive for loop.
+        final_batch_states = []
+        n_steps = int(torch.randint(min_steps, max_steps + 1, (1,), device=device).item())
+        for i in range(batch_size):
+            state = batch_states[i]
+            grid.set_state(state)
 
-        # Save best weights (Conv2d weight format)
+            for _ in range(n_steps):
+                grid.step(update_prob=update_prob, masking_th=masking_th)
+
+            final_batch_states.append(grid._grid_state)
+
+        #stack the batch again
+        final_batch_tensor = torch.stack(final_batch_states)
+
+        # Expand target to match batch size: (H, W, 1) -> (B, H, W, 1)
+        # and calculate mse_loss
+        target_batch = target_alpha.unsqueeze(0).repeat(batch_size, 1, 1, 1)
+        loss = functional.mse_loss(final_batch_tensor[:, :, :, 0:1], target_batch)
+
+        # save the best weights
         if loss.item() < best_loss:
             best_loss = loss.item()
             torch.save(
@@ -177,32 +220,31 @@ def train(
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
 
-        # Gradient L2 normalization
+        # apply gradient L2 normalisation
         for p in grid.NN.parameters():
             if p.grad is not None:
-                p.grad /= (p.grad.norm() + 1e-8)
+                p.grad /= (p.grad.norm() + 1e-8) # smalll epsilon to avoid division by 0
 
         optimizer.step()
+        pool.update(indices, final_batch_tensor.detach())
 
-        # Persist evolved batch back into Grid's pool
-        grid.write_batch_back_to_pool()
-
+        # logging the loss
         if step_idx % log_interval == 0 or step_idx == 1:
             print(f"step={step_idx} n_steps={n_steps} loss={loss.item():.6f}")
+            #! TEMPORARY PLOTTING THE ALIVE CHANNELS OF THE BATCH
+            # plot_state_heatmaps(final_batch_tensor[:, :, :, 0].permute(1, 2, 0).detach())
+            #! TEMPORARY PLOTTING THE ALIVE CHANNELS OF THE BATCH
 
-    # Visualize best weights
+
+    # to visualize the best weights
     weights = torch.load(best_weights_path, map_location=device)
     grid.set_weights_on_nn_from_tens(weights)
-
-    # Load any batch, reseed it, run and record history
-    grid.set_batch(list(range(batch_size)))
-    grid.load_batch_from_pool()
-    grid.clear_and_seed(grid_idx=torch.arange(batch_size, device=device), in_batch=True)
+    grid.clear_and_seed()
     states = grid.run_simulation(150, record_history=True)
     # animate_heatmaps(states)
 
-
 def main() -> None:
+
     params = {
         "grid_size": 50,
         "n_channels": 5,
@@ -220,7 +262,6 @@ def main() -> None:
         "damage_radius_range": (0.1, 0.2),
     }
     train(**params)
-
 
 if __name__ == "__main__":
     main()
