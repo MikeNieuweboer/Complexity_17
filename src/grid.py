@@ -198,6 +198,13 @@ class Grid:
         state_vector = state_vector.to(device=self._device, dtype=self._grids.dtype)
         self._grids[grid_idx, :, y, x] = state_vector
 
+    def set_cell_state_batch(
+        self, grid_idx: int, x: int, y: int, state_vector: torch.Tensor
+    ) -> None:
+        """Set a single cell state in a pool grid."""
+        state_vector = state_vector.to(device=self._device, dtype=self._grids.dtype)
+        self._batch[grid_idx, :, y, x] = state_vector
+
     def seed_center(self, grid_idx: int, seed_vector: Tensor) -> None:
         """Seed one pool grid at the center cell."""
         self.set_cell_state(
