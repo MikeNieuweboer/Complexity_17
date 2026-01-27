@@ -55,15 +55,12 @@ class NN(nn.Module):
         """Load and validates custom weights for the neural network layers.
 
         Args:
-            hidden_layer_weight (torch.Tensor): Tensor containing weights for the
-                                                hidden layer.
-            output_layer_weight (torch.Tensor): Tensor containing weights for the output
-                                                layer.
+            hidden_layer_weight (torch.Tensor): Tensor containing weights for the hidden layer.
+            output_layer_weight (torch.Tensor): Tensor containing weights for the output layer.
 
         Raises:
             ValueError: If the shape of either input tensor does not match the shape
                 of the corresponding layer's existing weights.
-
         """
         if hidden_layer_weight.shape != self.hidden_layer.weight.shape:
             raise ValueError(  # noqa: TRY003
@@ -81,56 +78,6 @@ class NN(nn.Module):
         self.hidden_layer.weight = nn.Parameter(hidden_layer_weight)
         self.output_layer.weight = nn.Parameter(output_layer_weight)
 
-    def _to_channels_first(self, tens: torch.Tensor) -> torch.Tensor:
-        """Move the channel dimension of a 3D of 4D tensor.
-
-        The channel dimension (back) will be moved to the front.
-        This method handles both 3D and 4D tensors:
-            - (C, H, W)         -->     (H, W, C)
-            - (B, C, H, W)      -->     (B, H, W, C)
-
-        Args:
-            tens (torch.Tensor): Input tensor with 3 or 4 dimensions.
-
-        Returns:
-            torch.Tensor: The permuted tensor with the channel dimension moved.
-
-        """
-        if tens.dim() not in (3, 4):
-            raise ValueError(f"Tensor must be 3D or 4D, got shape {tens.shape}")  # noqa: EM102, TRY003
-
-        # (H, W, C) -> (C, H, W)
-        if tens.dim() == 3:  # noqa: PLR2004
-            return tens.permute(2, 0, 1)
-
-        # (B, H, W, C) -> (B, C, H, W)
-        return tens.permute(0, 3, 1, 2)
-
-    def _to_channels_last(self, tens: torch.Tensor) -> torch.Tensor:
-        """Move the channel dimension of a 3D of 4D tensor.
-
-        The channel dimension front will be moved to the back.
-        This method handles both 3D and 4D tensors:
-            - (C, H, W)         -->     (H, W, C)
-            - (B, C, H, W)      -->     (B, H, W, C)
-
-        Args:
-            tens (torch.Tensor): Input tensor with 3 or 4 dimensions.
-
-        Returns:
-            torch.Tensor: The permuted tensor with the channel dimension moved.
-
-        """
-        if tens.dim() not in (3, 4):
-            raise ValueError(f"Tensor must be 3D or 4D, got shape {tens.shape}")  # noqa: EM102, TRY003
-
-        # (C, H, W) -> (H, W, C)
-        if tens.dim() == 3:  # noqa: PLR2004
-            return tens.permute(1, 2, 0)
-
-        # (B, C, H, W) -> (B, H, W, C)
-        return tens.permute(0, 2, 3, 1)
-
     def _perceive(self, state_grid: torch.Tensor) -> torch.Tensor:
         """Apply Sobel filters to compute perception vector.
 
@@ -140,8 +87,10 @@ class NN(nn.Module):
         Returns:
             Perception tensor of shape (B, 3*C, H, W).
             Concatenates: [Sobel_X, Sobel_Y, Identity]
-
         """
+        if state_grid.dim() != 4:
+            raise ValueError(f"state_grid must be 4D (B,C,H,W), got shape {tuple(state_grid.shape)}")  # noqa: TRY003
+
         _, C, _, _ = state_grid.shape  # noqa: N806
 
         user_device = state_grid.device
@@ -208,28 +157,21 @@ class NN(nn.Module):
         """Compute state delta via perception and neural layers.
 
         Args:
-            state_grid: Tensor of shape (H, W, C) or (B, H, W, C).
+            state_grid: Tensor of shape (B, C, H, W).
 
         Returns:
-            Delta tensor of shape (H, W, C) or (B, H, W, C).
-
+            Delta tensor of shape (B, C, H, W).
         """
-        # Move chanel dimension forward
-        if state_grid.dim() == 3:
-            input_tensor = self._to_channels_first(state_grid.unsqueeze(0))
-        else:
-            input_tensor = self._to_channels_first(state_grid)
+        if state_grid.dim() != 4:
+            raise ValueError(f"state_grid must be 4D (B,C,H,W), got shape {tuple(state_grid.shape)}")  # noqa: TRY003
+        if state_grid.shape[1] != self.num_channels:
+            raise ValueError(  # noqa: TRY003
+                f"Expected C={self.num_channels} at dim=1, got shape {tuple(state_grid.shape)}"
+            )
 
-        perception_grid = self._perceive(input_tensor)  # ((B,) 3*C, H, W)
+        perception_grid = self._perceive(state_grid)  # (B, 3*C, H, W)
         hidden = torch.relu(self.hidden_layer(perception_grid))
-        delta_s = self.output_layer(hidden) # ((B,) C, H, W)
-
-        # revert back to ((B,) H, W, C)
-        delta_s = self._to_channels_last(delta_s)
-
-        if state_grid.dim() == 3:  # noqa: PLR2004
-            delta_s = delta_s.squeeze(0)
-
+        delta_s = self.output_layer(hidden)  # (B, C, H, W)
         return delta_s
 
 
