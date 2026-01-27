@@ -33,7 +33,7 @@ def plot_heatmaps(tens: torch.Tensor,
 
     side_len = ceil(np.sqrt(num_maps))
     fig, axes = plt.subplots(ceil(num_maps/side_len), side_len,
-                             sharex=True, sharey=True)
+                             sharex=True, sharey=True, constrained_layout=True)
 
     for i, ax in enumerate(np.asarray(axes).flatten()):
         if i >= num_maps:
@@ -77,7 +77,7 @@ def animate_heatmaps(tens: torch.Tensor,
     n_frames, _, _, num_maps = tens.shape
     side_len = ceil(np.sqrt(num_maps))
     fig, axes = plt.subplots(ceil(num_maps/side_len), side_len,
-                             sharex=True, sharey=True, figsize=(10, 10))
+                             sharex=True, sharey=True, constrained_layout=True)
 
     images = []
     for i, ax in enumerate(np.asarray(axes).flatten()):
@@ -146,4 +146,3 @@ if __name__ == "__main__":
                      temp_dir / "temp_anim.mp4",
                      "Channel",
                      "Training Animation")
-
