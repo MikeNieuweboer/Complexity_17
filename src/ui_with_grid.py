@@ -85,7 +85,7 @@ class ToolBar(QtWidgets.QWidget):
         self.speed_slider.valueChanged.connect(self._change_sim_speed)
         self.erase_slider.valueChanged.connect(self._change_erase_size)
         self.file_picker.clicked.connect(self._open_weight_picker)
-        self.analysis_tool.currentTextChanged.connect(self.update_analysis_tool_label)
+        # self.analysis_tool.currentTextChanged.connect(self.update_analysis_tool_label)
 
         # vertical layout of the toolbar buttons and sliders
         layout = QtWidgets.QVBoxLayout()
@@ -138,16 +138,16 @@ class ToolBar(QtWidgets.QWidget):
     def _reset_clicked(self) -> None:
         self.reset_requested.emit(True)  # noqa: FBT003
 
-    def update_analysis_tool_label(self, text: str) -> None:
-        if text == "":
-            self.analysis_tool_label.setText("^ choose analysis tool")
-        elif self.grid is None:
-            self.analysis_tool_label.setText("run simulation step to analyze")
-        else:
-            grid = self._parent.get_grid()
-            self.analysis_tool_label.setText(
-                str(self._analysis_tool[text](grid.state(layer=0))),
-            )
+    # def update_analysis_tool_label(self, text: str) -> None:
+    #     if text == "":
+    #         self.analysis_tool_label.setText("^ choose analysis tool")
+    #     elif self.grid is None:
+    #         self.analysis_tool_label.setText("run simulation step to analyze")
+    #     else:
+    #         grid = self._parent.get_grid()
+    #         self.analysis_tool_label.setText(
+    #             str(self._analysis_tool[text](grid.state(layer=0))),
+    #         )
 
 
 class MainWindow(QtWidgets.QWidget):
@@ -170,7 +170,9 @@ class MainWindow(QtWidgets.QWidget):
         next_step_function: Callable | None = None,
         analysis_tool: dict[str, Callable[[npt.NDArray], Any]] | None = None,
     ) -> None:
-        self.grid = Grid(width=gridsize, height=gridsize, num_channels=5)
+        
+        #TODO num channels?
+        self.grid = Grid(poolsize=1, batch_size=1, num_channels=5, width=gridsize, height=gridsize, device="cpu")
 
         # initial settings
         if analysis_tool is None:
@@ -207,15 +209,17 @@ class MainWindow(QtWidgets.QWidget):
         self.setWindowTitle("Evolution simulator")
         self.resize(600, 600)
 
+    #TODO
     def step_simulation(self) -> None:
         if self.next_step_function is None:
-            raise RuntimeError("No next_step_function defined")
-
-        self.grid.step()
-        self.grid_view.update_grid(self.grid.state(layer=0))
-        self.toolbar.update_analysis_tool_label(
-            self.toolbar.analysis_tool.currentText(),
-        )
+            self.grid.simulate_simple()
+            new_state = self.grid.pool_state[0][0]
+            self.grid_view.update_grid(new_state)
+            # self.toolbar.update_analysis_tool_label(
+            #     self.toolbar.analysis_tool.currentText(),
+            # )
+        else:
+            self.next_step_function(self.grid.pool_state[0, 0])
 
     def _on_play_toggled(self, checked: bool):  # noqa: FBT001
         if checked:
@@ -223,8 +227,7 @@ class MainWindow(QtWidgets.QWidget):
         else:
             self.timer.stop()
 
-    def _set_weights(self, weights: tuple[npt.NDArray, npt.NDArray]) -> None:
-        self.grid = Grid(gridsize, gridsize, num_channels=weights[1].shape[1])
+    def _set_weights(self, weights: tuple[npt.NDArray, ...]) -> None:
         self.grid.set_weights_on_nn(weights)
 
     def _set_sim_speed(self, speed: int) -> None:
@@ -235,29 +238,43 @@ class MainWindow(QtWidgets.QWidget):
         self.erase_size = size
 
     def _create_function(self, row: int, col: int) -> None:
-        self.grid_view.grid[row, col] = 1
-        self.grid_view.update_grid(self.grid_view.grid)
+        grid_idx = 0
+        x, y = col, row
+
+        cell_np = self.grid.pool_state[grid_idx, :, y, x].copy()
+        cell_np[0] = 1.0
+
+        cell_t = torch.from_numpy(cell_np)
+        self.grid.set_cell_state(grid_idx, x, y, cell_t)
+        self.grid_view.update_grid(self.grid.pool_state[0][0])
 
     def _erase_function(self, row: int, col: int) -> None:
-        coordinates = get_filled_circle_coordinates(row, col, self.erase_size)
-        empty = self.grid.empty
-        for r, c in coordinates:
-            if (
-                0 <= r < self.grid_view.grid.shape[0]
-                and 0 <= c < self.grid_view.grid.shape[1]
-            ):
-                self.grid.set_cell_state(c, r, empty)
-        self.grid_view.update_grid(self.grid_view.grid)
+        grid_idx = 0
+
+        coords = get_filled_circle_coordinates(row, col, self.erase_size)
+        h, w = self.grid.shape  # (H, W)
+
+        for r, c in coords:
+            if 0 <= r < h and 0 <= c < w:
+                x, y = c, r
+
+                cell_np = self.grid.pool_state[grid_idx, :, y, x].copy()
+                cell_np[0] = 0.
+
+                cell_t = torch.from_numpy(cell_np)
+                self.grid.set_cell_state(grid_idx, x, y, cell_t)
+
+        self.grid_view.update_grid(self.grid.pool_state[0][0])
 
     def _reset_grid(self) -> None:
-        self.grid.clear_and_seed()
-        self.grid_view.update_grid(self.grid_view.grid)
-        self.toolbar.update_analysis_tool_label(
-            self.toolbar.analysis_tool.currentText(),
-        )
-
-    def get_grid(self) -> Grid:
-        return self.grid
+        seed_vec = self.grid_view.seed_vector.to(dtype=torch.float32)
+        self.grid.clear_and_seed(grid_idx=0,seed_vector=seed_vec)
+        self.grid_view.update_grid(self.grid.pool_state[0][0])
+        # self.toolbar.update_analysis_tool_label(
+        #     self.toolbar.analysis_tool.currentText(),
+        # )
+    # def get_grid(self) -> Grid:
+    #     return self.grid
 
 
 class GridView(FigureCanvas):
@@ -278,16 +295,17 @@ class GridView(FigureCanvas):
         # grid setup
         self.seed_vector = torch.zeros(5, dtype=torch.float32, device=None)
         self.seed_vector[0] = 1.0  # aliveness
-        self.seed_vector[1:5] = 0.0  # alpha channel
+        self.seed_vector[1:] = 0.0  # alpha channel
 
-        self.grid_source = grid
-        self.grid = self.grid_source.state(layer=0)
+        # Get first (and only) grid in pool
+        self.grid = grid
+        self.current_state = grid.pool_state[0][0]
         # TODO(sijmen): add combobox for person to change view to be drawn
         # colormap setup
         self.cmap = ListedColormap(["white", "black"])
         self.norm = BoundaryNorm([0, 1, 2], self.cmap.N)
         self.im = self.ax.imshow(
-            self.grid,
+            self.current_state,
             cmap=self.cmap,
             norm=self.norm,
             origin="upper",
@@ -299,10 +317,9 @@ class GridView(FigureCanvas):
         # connecting mouse events
         self.mpl_connect("motion_notify_event", self.draw_cells)
 
-    def update_grid(self, new_grid: npt.NDArray) -> None:
-        self.grid = new_grid
-
-        self.im.set_data(self.grid)
+    def update_grid(self, new_state: npt.NDArray) -> None:
+        self.current_state = new_state
+        self.im.set_data(self.current_state)
         self.draw_idle()
 
     def draw_cells(self, event: MouseEvent) -> None:
@@ -315,7 +332,8 @@ class GridView(FigureCanvas):
         row = int(event.ydata + 0.5)
         col = int(event.xdata + 0.5)
 
-        if 0 <= row < self.grid.shape[0] and 0 <= col < self.grid.shape[1]:
+        height, width = self.grid.shape
+        if 0 <= row < height and 0 <= col < width:
             if event.button == 3:  # right click
                 self.creation_signal.emit(row, col)
 
@@ -359,19 +377,19 @@ def get_filled_circle_coordinates(
     return coordinates
 
 
-def test_CA(grid: np.ndarray) -> np.ndarray:
+#TODO
+def test_CA(grid_state: npt.NDArray) -> npt.NDArray:
     # testing a simple CA update rule
-    new_grid = np.copy(grid)
-    for i in range(grid.shape[0]):
-        for j in range(grid.shape[1]):
-            if any(grid[i - 1 : i + 2, j]) or any(grid[i, j - 1 : j + 2]):
+    new_grid = np.copy(grid_state)
+    (height, width) = new_grid.shape
+    for j in range(width):
+        for i in range(height):
+            if any(grid_state[i - 1 : i + 2, j]) or any(grid_state[i, j - 1 : j + 2]):
                 new_grid[i, j] = 1
     return new_grid
 
-
 if __name__ == "__main__":
-    grid = Grid(gridsize, gridsize, 5)
     app = QtWidgets.QApplication(sys.argv)
-    w = MainWindow(test_CA)
+    w = MainWindow()
     w.show()
     app.exec()
