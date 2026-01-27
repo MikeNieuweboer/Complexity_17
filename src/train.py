@@ -10,6 +10,8 @@ from nn import NN
 root_dir = Path(__file__).parent.parent
 weights_dir = root_dir / "weights"
 weights_dir.mkdir(exist_ok=True, parents=True)
+figure_dir = root_dir / "figures"
+figure_dir.mkdir(exist_ok=True, parents=True)
 
 
 def damage_batch_bchw(
@@ -88,7 +90,7 @@ def train(
     masking_th: float = 0.1,
     pool_size: int = 64,
     batch_size: int = 16,
-    log_interval: int = 50,
+    plot_interval: int = 50,
     n_to_damage: int = 3,
     damage_radius_range: tuple[float, float] = (0.1, 0.4),
 ) -> None:
@@ -120,7 +122,9 @@ def train(
 
     optimizer = torch.optim.Adam(grid.NN.parameters(), lr=lr)
 
-    for step_idx in range(1, steps + 1):
+    t = trange(steps, desc="Training", leave=True)
+
+    for step_idx in t:
         # Sample indices + load batch from pool into grid._batch (B, C, H, W)
         idxs = grid.sample_batch()  # idxs on CPU
         batch = grid.batch_state  # (B, C, H, W)
@@ -187,8 +191,11 @@ def train(
         # Persist evolved batch back into Grid's pool
         grid.write_batch_back_to_pool()
 
-        if step_idx % log_interval == 0 or step_idx == 1:
-            print(f"step={step_idx} n_steps={n_steps} loss={loss.item():.6f}")
+        # append loss to trange
+        t.set_postfix(loss=f"{loss.item():.6f}")
+
+        if step_idx % plot_interval == 0 or step_idx == 1:
+            f
 
     # Visualize best weights
     weights = torch.load(best_weights_path, map_location=device)
@@ -215,7 +222,7 @@ def main() -> None:
         "masking_th": 0.1,
         "pool_size": 64,
         "batch_size": 8,
-        "log_interval": 10,
+        "plot_interval": 10,
         "n_to_damage": 2,
         "damage_radius_range": (0.1, 0.2),
     }

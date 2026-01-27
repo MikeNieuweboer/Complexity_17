@@ -283,6 +283,7 @@ class Grid:
         ).to(batch.dtype)
         rand_mask = rand_mask.unsqueeze(1)  # (B,1,H,W)
         batch = batch + state_change * rand_mask
+        batch = batch.clamp(0.0, 1.0)
 
         ### Alive Masking
         alpha = batch[:, 0:1, :, :]  # (B, 1, H, W)
