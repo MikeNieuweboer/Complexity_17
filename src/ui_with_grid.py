@@ -1,12 +1,12 @@
+from __future__ import annotations
+
 import sys
-from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 # tqdm
 import numpy as np
 import numpy.typing as npt
 import torch
-from matplotlib.backend_bases import MouseEvent
 from matplotlib.backends.backend_qtagg import FigureCanvas
 from matplotlib.colors import BoundaryNorm, ListedColormap
 from matplotlib.figure import Figure
@@ -14,10 +14,12 @@ from PyQt6 import QtCore, QtWidgets
 
 from grid import Grid
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from matplotlib.backend_bases import MouseEvent
+
 gridsize = 100
-# TODO store the grid somewhere
-# TODO Add worker using QRunnable and QThreadPool
-# TODO Variable cmap for different colors + allow for observation of different layers
 
 
 class ToolBar(QtWidgets.QWidget):
@@ -31,21 +33,25 @@ class ToolBar(QtWidgets.QWidget):
     erase_size_requested = QtCore.pyqtSignal(int)
     on_new_weights = QtCore.pyqtSignal(tuple)
 
-    def __init__(self, parent=None, analysis_tool={}):
+    def __init__(
+        self,
+        parent: MainWindow,
+        analysis_tool: dict[str, Callable[[npt.NDArray], str]] | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setFixedSize(QtCore.QSize(150, 300))
-        self.analysis_tool_options = {"": "^ choose analysis tool"}
+        self._analysis_tool = analysis_tool if analysis_tool is not None else {}
+        self._parent = parent
         self.grid = None
-
-        if analysis_tool != {}:
-            for key in analysis_tool.keys():
-                self.analysis_tool_options[key] = analysis_tool[key]
 
         # setting up buttons
 
-        ComboBox_items = ["", *list(analysis_tool.keys())]
+        combobox_items = [
+            "",
+            *(list(analysis_tool.keys()) if analysis_tool is not None else []),
+        ]
         self.analysis_tool = QtWidgets.QComboBox()
-        self.analysis_tool.addItems(ComboBox_items)
+        self.analysis_tool.addItems(combobox_items)
         self.analysis_tool_label = QtWidgets.QLabel("^ choose analysis tool")
 
         self.file_picker = QtWidgets.QPushButton("Choose Weights")
@@ -69,12 +75,12 @@ class ToolBar(QtWidgets.QWidget):
         self.erase_slider.setValue(1)
 
         # connecting buttons to functions
-        self.playpause_button.toggled.connect(self.play_pause_toggled)
-        self.step_button.clicked.connect(self.step_clicked)
-        self.reset_button.clicked.connect(self.reset_clicked)
-        self.speed_slider.valueChanged.connect(self.change_sim_speed)
-        self.erase_slider.valueChanged.connect(self.change_erase_size)
-        self.file_picker.clicked.connect(self.open_weight_picker)
+        self.playpause_button.toggled.connect(self._play_pause_toggled)
+        self.step_button.clicked.connect(self._step_clicked)
+        self.reset_button.clicked.connect(self._reset_clicked)
+        self.speed_slider.valueChanged.connect(self._change_sim_speed)
+        self.erase_slider.valueChanged.connect(self._change_erase_size)
+        self.file_picker.clicked.connect(self._open_weight_picker)
         self.analysis_tool.currentTextChanged.connect(self.update_analysis_tool_label)
 
         # vertical layout of the toolbar buttons and sliders
@@ -92,15 +98,15 @@ class ToolBar(QtWidgets.QWidget):
         layout.addWidget(self.erase_slider)
         self.setLayout(layout)
 
-    def change_sim_speed(self, value):
+    def _change_sim_speed(self, value: float) -> None:
         self.speed_label.setText(f"Simulation Speed: {value}")
         self.sim_speed_requested.emit(value)
 
-    def change_erase_size(self, value):
+    def _change_erase_size(self, value: int) -> None:
         self.erase_label.setText(f"Erase Size: {value}")
         self.erase_size_requested.emit(value)
 
-    def open_weight_picker(self, value) -> None:
+    def _open_weight_picker(self) -> None:
         dialog = QtWidgets.QFileDialog()
         dialog.setNameFilter("*.npz")
         if dialog.exec():
@@ -116,30 +122,28 @@ class ToolBar(QtWidgets.QWidget):
                 arrays = [npz[file] for file in npz.files]
                 self.on_new_weights.emit((arrays[0], arrays[1]))
 
-    def play_pause_toggled(self, checked):
+    def _play_pause_toggled(self, checked: bool) -> None:  # noqa: FBT001
         if checked:
             self.playpause_button.setText("Pause")
         else:
             self.playpause_button.setText("Play")
         self.update_toggle.emit(checked)
 
-    def step_clicked(self):
-        self.step_requested.emit(True)
+    def _step_clicked(self) -> None:
+        self.step_requested.emit(True)  # noqa: FBT003
 
-    def reset_clicked(self):
-        self.reset_requested.emit(True)
+    def _reset_clicked(self) -> None:
+        self.reset_requested.emit(True)  # noqa: FBT003
 
-    def set_grid(self, grid):
-        self.grid = grid
-
-    def update_analysis_tool_label(self, text):
+    def update_analysis_tool_label(self, text: str) -> None:
         if text == "":
             self.analysis_tool_label.setText("^ choose analysis tool")
         elif self.grid is None:
             self.analysis_tool_label.setText("run simulation step to analyze")
         else:
+            grid = self._parent.get_grid()
             self.analysis_tool_label.setText(
-                str(self.analysis_tool_options[text](self.grid)),
+                str(self._analysis_tool[text](grid.state(layer=0))),
             )
 
 
@@ -163,7 +167,7 @@ class MainWindow(QtWidgets.QWidget):
         next_step_function: Callable | None = None,
         analysis_tool: dict[str, Callable[[npt.NDArray], Any]] | None = None,
         grid: Grid | None = None,
-    ):
+    ) -> None:
         if grid is None:
             grid = Grid(width=gridsize, height=gridsize, num_channels=5)
         self.grid = grid
@@ -191,50 +195,49 @@ class MainWindow(QtWidgets.QWidget):
 
         # connecting buttons and sliders to functions
         self.toolbar.step_requested.connect(self.step_simulation)
-        self.toolbar.sim_speed_requested.connect(self.set_sim_speed)
-        self.toolbar.update_toggle.connect(self.on_play_toggled)
-        self.grid_view.creation_signal.connect(self.create_function)
-        self.grid_view.erase_signal.connect(self.erase_function)
-        self.toolbar.erase_size_requested.connect(self.set_erase_size)
-        self.toolbar.reset_requested.connect(self.reset_grid)
-        self.toolbar.on_new_weights.connect(self.set_weights)
+        self.toolbar.sim_speed_requested.connect(self._set_sim_speed)
+        self.toolbar.update_toggle.connect(self._on_play_toggled)
+        self.grid_view.creation_signal.connect(self._create_function)
+        self.grid_view.erase_signal.connect(self._erase_function)
+        self.toolbar.erase_size_requested.connect(self._set_erase_size)
+        self.toolbar.reset_requested.connect(self._reset_grid)
+        self.toolbar.on_new_weights.connect(self._set_weights)
 
         # window settings
         self.setWindowTitle("Evolution simulator")
         self.resize(600, 600)
 
-    def step_simulation(self):
+    def step_simulation(self) -> None:
         if self.next_step_function is None:
             raise RuntimeError("No next_step_function defined")
 
         self.grid.step()
         self.grid_view.update_grid(self.grid.state(layer=0))
-        self.toolbar.set_grid(self.grid.state(layer=0))
         self.toolbar.update_analysis_tool_label(
             self.toolbar.analysis_tool.currentText(),
         )
 
-    def on_play_toggled(self, checked: bool):  # noqa: FBT001
+    def _on_play_toggled(self, checked: bool):  # noqa: FBT001
         if checked:
             self.timer.start()
         else:
             self.timer.stop()
 
-    def set_weights(self, weights: tuple[npt.NDArray, npt.NDArray]) -> None:
+    def _set_weights(self, weights: tuple[npt.NDArray, npt.NDArray]) -> None:
         self.grid.set_weights_on_nn(weights)
 
-    def set_sim_speed(self, speed: int):
+    def _set_sim_speed(self, speed: int) -> None:
         self.speed = speed
         self.timer.setInterval(1000 // self.speed)
 
-    def set_erase_size(self, size: int):
+    def _set_erase_size(self, size: int) -> None:
         self.erase_size = size
 
-    def create_function(self, row: int, col: int):
+    def _create_function(self, row: int, col: int) -> None:
         self.grid_view.grid[row, col] = 1
         self.grid_view.update_grid(self.grid_view.grid)
 
-    def erase_function(self, row: int, col: int):
+    def _erase_function(self, row: int, col: int) -> None:
         coordinates = get_filled_circle_coordinates(row, col, self.erase_size)
         empty = self.grid.empty
         for r, c in coordinates:
@@ -245,12 +248,15 @@ class MainWindow(QtWidgets.QWidget):
                 self.grid.set_cell_state(c, r, empty)
         self.grid_view.update_grid(self.grid_view.grid)
 
-    def reset_grid(self):
-        self.grid_view.grid = np.ones((gridsize, gridsize), dtype=int)
+    def _reset_grid(self) -> None:
+        self.grid.clear_and_seed()
         self.grid_view.update_grid(self.grid_view.grid)
         self.toolbar.update_analysis_tool_label(
             self.toolbar.analysis_tool.currentText(),
         )
+
+    def get_grid(self) -> Grid:
+        return self.grid
 
 
 class GridView(FigureCanvas):
@@ -274,10 +280,8 @@ class GridView(FigureCanvas):
         self.seed_vector[1:5] = 0.0  # alpha channel
 
         self.grid_source = grid
-        self.grid_source.seed_center(self.seed_vector)
-        self.grid = self.grid_source.state(
-            layer=0
-        )  # add combobox for person to change view to be drawn
+        self.grid = self.grid_source.state(layer=0)
+        # TODO(sijmen): add combobox for person to change view to be drawn
         # colormap setup
         self.cmap = ListedColormap(["white", "black"])
         self.norm = BoundaryNorm([0, 1, 2], self.cmap.N)

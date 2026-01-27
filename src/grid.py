@@ -5,9 +5,12 @@ from typing import TYPE_CHECKING
 import numpy as np
 import torch
 from torch.nn import functional
+<<<<<<< HEAD
 from tqdm import trange
 
 import numpy as np
+=======
+>>>>>>> 1d78137 (Reconnected the ui with the grid)
 
 from nn import NN
 
@@ -82,6 +85,7 @@ class Grid:
         self._seed = seed
         self._rng = torch.Generator(device=self._device)
         self._rng.manual_seed(seed)
+        self.clear_and_seed()
 
     def set_weights_on_nn(self, weights: tuple[npt.NDArray, ...]) -> None:
         """Load pre-trained weights into the internal neural network.
@@ -145,6 +149,19 @@ class Grid:
         self._weights = (
             hidden_tens.detach().cpu().numpy(),
             output_tens.detach().cpu().numpy(),
+<<<<<<< HEAD
+=======
+        )
+
+    def clear_and_seed(self) -> None:
+        """Initialize seed state vector in center of grid."""
+        seed_vec = torch.Tensor([1 for _ in range(self._num_channels)])
+
+        self._grid_state = torch.zeros(
+            (self._height, self._height, self._num_channels),
+            dtype=torch.float32,
+            device=self._device,
+>>>>>>> 1d78137 (Reconnected the ui with the grid)
         )
 
     def set_batch(self, grid_idxs) -> None:
@@ -305,7 +322,7 @@ class Grid:
             batch = self.step(batch=batch, update_prob=update_prob, masking_th=masking_th)
         self._batch = batch
 
-    def step_test(self):
+    def step_test(self) -> None:
         # testing a simple CA update rule
         new_grid = np.copy(self._grid_state[:, :, 0])
         for i in range(self._grid_state.shape[0]):
@@ -313,30 +330,6 @@ class Grid:
                 if any(new_grid[i - 1 : i + 2, j]) or any(new_grid[i, j - 1 : j + 2]):
                     new_grid[i, j] = 1
         self._grid_state[:, :, 0] = torch.tensor(new_grid)
-
-    def step_test_speed(self, grid) -> np.ndarray:
-        new_grid = np.copy(self._grid_state[:, :, 0])
-        for i in range(grid.shape[0]):
-            for j in range(grid.shape[1]):
-                if any(self._grid_state[i - 1 : i + 2, j, 0]) or any(
-                    self._grid_state[i, j - 1 : j + 2, 0]
-                ):
-                    new_grid[i, j] = 1
-        new_grid = torch.tensor(new_grid)
-        new_grid = new_grid.numpy()
-        return new_grid
-
-    def step_test(self):
-        # testing a simple CA update rule
-        grid_copy = np.copy(self._grid_state[:, :, 0])
-        for i in range(grid_copy.shape[0]):
-            for j in range(grid_copy.shape[1]):
-                if (
-                    grid_copy[i - 1 : i + 2, j].any()
-                    or grid_copy[i, j - 1 : j + 2].any()
-                ):
-                    self._grid_state[i, j] = 1
-        # self._grid_state[:,:,0] = torch.tensor(new_grid)
 
     def step_test_speed(self, grid) -> np.ndarray:
         new_grid = np.copy(self._grid_state[:, :, 0])
@@ -353,7 +346,9 @@ class Grid:
         steps: int = 20,
         update_prob: float = 0.5,
         masking_th: float = 0.1,
+        *,
         record_history: bool = False,
+<<<<<<< HEAD
     ) -> torch.Tensor:
         """Run the batched CA and return results.
 
@@ -363,6 +358,10 @@ class Grid:
             If record_history=True: (T, B, C, H, W) where T = steps + 1
             Else: (B, C, H, W) final batch state
         """
+=======
+    ) -> Tensor:
+        """Run the grid CA for a fixed number of steps."""
+>>>>>>> 1d78137 (Reconnected the ui with the grid)
         if record_history:
             hist = [self._batch.detach().clone()]
             batch = self._batch
@@ -410,8 +409,28 @@ class Grid:
         """Spatial grid shape (H, W)."""
         return (self._height, self._width)
 
+<<<<<<< HEAD
     # CPU
     @property
     def weights(self) -> tuple[npt.NDArray, ...] | None:
         """Current NN weights tuple, or None if not set."""
         return getattr(self, "_weights", None)
+=======
+def main():
+    # Settings
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    height, width, channels = 64, 64, 16
+    seed = 123
+
+    # Create grid
+    grid = Grid(
+        width=width, height=height, num_channels=channels, seed=seed, device=device
+    )
+
+    # Run a few steps
+    grid.run_simulation(steps=20, update_prob=0.5, masking_th=0.1)
+
+
+if __name__ == "__main__":
+    main()
+>>>>>>> 1d78137 (Reconnected the ui with the grid)
