@@ -4,6 +4,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+from utils import data_path
+
 
 def main(path: Path) -> None:
     data = None
@@ -34,4 +36,4 @@ def main(path: Path) -> None:
 
 
 if __name__ == "__main__":
-    main(Path("./data/FULL_CIRCLE_BALANCED_BASIC.csv"))
+    main(data_path / "FULL_CIRCLE_BALANCED_BASIC.csv")
