@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import sys
 from typing import TYPE_CHECKING, Any
 
@@ -7,12 +8,15 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import numpy.typing as npt
 import torch
-from matplotlib.backends.backend_qtagg import FigureCanvas
+from matplotlib.backends.backend_qtagg import (
+    FigureCanvas,  # pyright: ignore[reportAttributeAccessIssue]
+)
 from matplotlib.colors import BoundaryNorm, ListedColormap
 from matplotlib.figure import Figure
 from PyQt6 import QtCore, QtWidgets
 
 from grid import Grid
+from utils import load_weights
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -108,18 +112,17 @@ class ToolBar(QtWidgets.QWidget):
 
     def _open_weight_picker(self) -> None:
         dialog = QtWidgets.QFileDialog()
-        dialog.setNameFilter("*.npz")
+        dialog.setNameFilter("(*.npz *.pt)")
         if dialog.exec():
             filenames = dialog.selectedFiles()
             if filenames:
                 file_path = filenames[0]
                 try:
-                    npz = np.load(file_path)
+                    arrays = load_weights(Path(file_path))
                 except OSError as _:
                     print("Weights are not found.")
                     return
 
-                arrays = [npz[file] for file in npz.files]
                 self.on_new_weights.emit((arrays[0], arrays[1]))
 
     def _play_pause_toggled(self, checked: bool) -> None:  # noqa: FBT001
@@ -166,11 +169,8 @@ class MainWindow(QtWidgets.QWidget):
         self,
         next_step_function: Callable | None = None,
         analysis_tool: dict[str, Callable[[npt.NDArray], Any]] | None = None,
-        grid: Grid | None = None,
     ) -> None:
-        if grid is None:
-            grid = Grid(width=gridsize, height=gridsize, num_channels=5)
-        self.grid = grid
+        self.grid = Grid(width=gridsize, height=gridsize, num_channels=5)
 
         # initial settings
         if analysis_tool is None:
@@ -224,6 +224,7 @@ class MainWindow(QtWidgets.QWidget):
             self.timer.stop()
 
     def _set_weights(self, weights: tuple[npt.NDArray, npt.NDArray]) -> None:
+        self.grid = Grid(gridsize, gridsize, num_channels=weights[1].shape[1])
         self.grid.set_weights_on_nn(weights)
 
     def _set_sim_speed(self, speed: int) -> None:
