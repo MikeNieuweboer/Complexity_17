@@ -339,6 +339,12 @@ class Grid:
             activate_print=False,
         )
         return self._batch.detach().clone()
+    
+    def simulate_simple(self):
+        self.set_batch([0])
+        self.load_batch_from_pool()
+        self.run_simulation_batch(steps=1, update_prob=0.5, masking_th=0.1, activate_print=False)
+        self.write_batch_back_to_pool()
 
     @property
     def pool_state(self) -> npt.NDArray:
@@ -366,6 +372,7 @@ class Grid:
     def weights(self) -> tuple[npt.NDArray, ...] | None:
         """Current NN weights tuple, or None if not set."""
         return getattr(self, "_weights", None)
+
 
 def main():
     # settings
