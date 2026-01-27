@@ -1,9 +1,21 @@
+"""Provides utility functions and variables.
+
+Description:
+------------
+Provides several important project paths, such as the root, weights and data paths.
+Also provides functionality to load weights from either a .npz, or .pt file.
+"""
+
 from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
 import torch
 from PIL import Image
+
+root_path = Path(__file__).parent.parent
+weights_path = root_path / "weights"
+data_path = root_path / "data"
 
 
 def load_weights(path: Path) -> tuple[npt.NDArray, npt.NDArray]:
@@ -15,7 +27,8 @@ def load_weights(path: Path) -> tuple[npt.NDArray, npt.NDArray]:
 
     Returns:
     -------
-        Tuple of (hidden_layer_weights, output_layer_weights) as numpy arrays
+        Tuple of (hidden_layer_weights, output_layer_weights) as numpy arrays.
+        These weights have the dimensions: Input X Output
 
     Raises:
     ------
