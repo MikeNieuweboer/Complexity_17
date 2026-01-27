@@ -18,13 +18,17 @@ These fractions can be removed from:
 """
 
 import argparse
+import csv
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 from tqdm import tqdm
 
 from grid import Grid
-from utils import load_weights
+from utils import data_path, load_weights
+
+removal_iterations = 100
 
 
 def _simulate_to_end(grid: Grid, max_time: int) -> int:
@@ -43,7 +47,7 @@ def channel_destruction(
     *,
     border_mod: float = 0.1,
     seed: int = 43,
-) -> None:
+) -> tuple[list[list[int]], list[list[int]], npt.NDArray]:
     grid = grid.deepcopy()
     grid_state = grid.run_simulation(delay)
 
@@ -53,27 +57,33 @@ def channel_destruction(
     total = np.sum(selected_channel)
     indices = np.where(selected_channel)
 
-    survival_times = []
-    surviving_cells = []
-    for ratio in tqdm(np.linspace(0, 1, 50)):
-        local_grid = grid.deepcopy()
-        gen = np.random.Generator(np.random.PCG64(seed))
+    iterations = 10
 
-        # Generate indices to be removed
-        removals = int(total * ratio)
-        removed_indices = gen.choice(range(len(indices[0])), removals, replace=False)
-        removed_row = indices[0][removed_indices]
-        removed_column = indices[1][removed_indices]
+    survival_times = [[] for _ in range(iterations)]
+    surviving_cells = [[] for _ in range(iterations)]
+    gen = np.random.Generator(np.random.PCG64(seed))
+    for i in range(iterations):
+        for ratio in tqdm(np.linspace(0, 1, 50)):
+            local_grid = grid.deepcopy()
 
-        # Remove the random cells
-        for r, c in zip(removed_row, removed_column, strict=True):
-            local_grid.state()[r, c, channel] = 0
+            # Generate indices to be removed
+            removals = int(total * ratio)
+            removed_indices = gen.choice(
+                range(len(indices[0])), removals, replace=False
+            )
+            removed_row = indices[0][removed_indices]
+            removed_column = indices[1][removed_indices]
 
-        survival_time = _simulate_to_end(local_grid, max_time)
-        survival_times.append(survival_time)
+            # Remove the random cells
+            for r, c in zip(removed_row, removed_column, strict=True):
+                local_grid.state()[r, c, channel] = 0
 
-        surviving_cells.append(np.sum(local_grid.state(layer=0) > 0))
-    print(survival_times)
+            survival_time = _simulate_to_end(local_grid, max_time)
+            survival_times[i].append(survival_time)
+
+            surviving_cells[i].append(np.sum(local_grid.state(layer=0) > 0))
+    removed = (np.linspace(0, 1, 50) * total).astype(int)
+    return survival_times, surviving_cells, removed
 
 
 def channel_mask_destruction(
@@ -84,7 +94,7 @@ def channel_mask_destruction(
     *,
     border_mod: float = 0.1,
     seed: int = 43,
-) -> None:
+) -> tuple[list[list[int]], list[list[int]], npt.NDArray]:
     grid = grid.deepcopy()
     empty = grid.empty
     grid_state = grid.run_simulation(delay)
@@ -99,27 +109,33 @@ def channel_mask_destruction(
     total = np.sum(alive)
     indices = np.where(alive)
 
-    survival_times = []
-    surviving_cells = []
-    for ratio in tqdm(np.linspace(0, 1, 50)):
-        local_grid = grid.deepcopy()
-        gen = np.random.Generator(np.random.PCG64(seed))
+    iterations = 10
 
-        # Generate indices to be removed
-        removals = int(total * ratio)
-        removed_indices = gen.choice(range(len(indices[0])), removals, replace=False)
-        removed_row = indices[0][removed_indices]
-        removed_column = indices[1][removed_indices]
+    survival_times = [[] for _ in range(iterations)]
+    surviving_cells = [[] for _ in range(iterations)]
+    gen = np.random.Generator(np.random.PCG64(seed))
+    for i in range(iterations):
+        for ratio in tqdm(np.linspace(0, 1, 50)):
+            local_grid = grid.deepcopy()
 
-        # Remove the random cells
-        for r, c in zip(removed_row, removed_column, strict=True):
-            local_grid.set_cell_state(c, r, empty)
+            # Generate indices to be removed
+            removals = int(total * ratio)
+            removed_indices = gen.choice(
+                range(len(indices[0])), removals, replace=False
+            )
+            removed_row = indices[0][removed_indices]
+            removed_column = indices[1][removed_indices]
 
-        survival_time = _simulate_to_end(local_grid, max_time)
-        survival_times.append(survival_time)
+            # Remove the random cells
+            for r, c in zip(removed_row, removed_column, strict=True):
+                local_grid.set_cell_state(c, r, empty)
 
-        surviving_cells.append(np.sum(local_grid.state(layer=0) > 0))
-    print(survival_times)
+            survival_time = _simulate_to_end(local_grid, max_time)
+            survival_times[i].append(survival_time)
+
+            surviving_cells[i].append(np.sum(local_grid.state(layer=0) > 0))
+    removed = (np.linspace(0, 1, 50) * total).astype(int)
+    return survival_times, surviving_cells, removed
 
 
 def find_start_flood(grid: Grid, gen: np.random.Generator) -> tuple[int, int]:
@@ -157,7 +173,9 @@ def flood_fill_step(queue: list[tuple[int, int]], grid: Grid, gen: np.random.Gen
                 queue.insert(0, (new_row, new_column))
 
 
-def blob_destruction(grid: Grid, delay: int, max_time: int, *, seed: int = 43) -> None:
+def blob_destruction(
+    grid: Grid, delay: int, max_time: int, *, seed: int = 43
+) -> tuple[list[list[int]], list[list[int]], npt.NDArray]:
     grid = grid.deepcopy()
     gen = np.random.Generator(np.random.PCG64(seed))
 
@@ -188,45 +206,54 @@ def blob_destruction(grid: Grid, delay: int, max_time: int, *, seed: int = 43) -
             survival_times[i].append(survival_time)
 
             surviving_cells[i].append(np.sum(local_grid_copy.state(layer=0) > 0))
-    mean_survival_times = np.mean(survival_times, axis=0)
-    print(mean_survival_times)
+    removed = (np.linspace(0, 1, 50) * total).astype(int)
+    return survival_times, surviving_cells, removed
 
 
 def random_destruction(
     grid: Grid, delay: int, max_time: int, *, seed: int = 43
-) -> None:
+) -> tuple[list[list[int]], list[list[int]], npt.NDArray]:
     # Warm up
-    grid = grid.deepcopy()
+    grid.set_batch([0])
+    grid.load_batch_from_pool()
     empty = grid.empty
-    grid_state = grid.run_simulation(delay)
+    grid_state = grid.run_simulation(delay).squeeze(0)
 
     alpha = grid_state.detach().numpy()[:, :, 0]
     alive = alpha > 0
 
     total = np.sum(alive)
     indices = np.where(alive)
+    iterations = 10
 
-    survival_times = []
-    surviving_cells = []
-    for ratio in tqdm(np.linspace(0, 1, 50)):
-        local_grid = grid.deepcopy()
-        gen = np.random.Generator(np.random.PCG64(seed))
+    survival_times = [[] for _ in range(iterations)]
+    surviving_cells = [[] for _ in range(iterations)]
+    gen = np.random.Generator(np.random.PCG64(seed))
+    for i in range(iterations):
+        for ratio in np.linspace(0, 1, removal_iterations):
+            grid.set_batch([0])
+            grid.load_batch_from_pool()
 
-        # Generate indices to be removed
-        removals = int(total * ratio)
-        removed_indices = gen.choice(range(len(indices[0])), removals, replace=False)
-        removed_row = indices[0][removed_indices]
-        removed_column = indices[1][removed_indices]
+            # Generate indices to be removed
+            removals = int(total * ratio)
+            removed_indices = gen.choice(
+                range(len(indices[0])),
+                removals,
+                replace=False,
+            )
+            removed_row = indices[0][removed_indices]
+            removed_column = indices[1][removed_indices]
 
-        # Remove the random cells
-        for r, c in zip(removed_row, removed_column, strict=True):
-            local_grid.set_cell_state(c, r, empty)
+            # Remove the random cells
+            for r, c in zip(removed_row, removed_column, strict=True):
+                grid.set_cell_state(0, c, r, empty)
 
-        survival_time = _simulate_to_end(local_grid, max_time)
-        survival_times.append(survival_time)
+            survival_time = _simulate_to_end(grid, max_time)
+            survival_times[i].append(survival_time)
 
-        surviving_cells.append(np.sum(local_grid.state(layer=0) > 0))
-    print(surviving_cells)
+            surviving_cells[i].append(np.sum(grid.batch_state. > 0))
+    removed = (np.linspace(0, 1, 50) * total).astype(int)
+    return survival_times, surviving_cells, removed
 
 
 def parse_args() -> argparse.ArgumentParser:
@@ -264,6 +291,19 @@ def parse_args() -> argparse.ArgumentParser:
     return parser.parse_args()  # pyright: ignore[reportReturnType]def main():
 
 
+def save_stats(path: Path, removed: npt.NDArray, stats: list[list[int]]):
+    with path.open("w", newline="") as csvfile:
+        writer = csv.writer(csvfile)
+
+        # Write header
+        writer.writerow(["Removed"] + [f"Iteration_{i + 1}" for i in range(len(stats))])
+
+        # Write survival times data
+        for idx, remove_count in enumerate(removed):
+            row = [remove_count] + [stats[i][idx] for i in range(len(stats))]
+            writer.writerow(row)
+
+
 def main() -> None:
     seed = 43
 
@@ -273,7 +313,15 @@ def main() -> None:
     weights = load_weights(weight_path)
 
     num_channels = weights[1].shape[1]  # Number of outputs of the NN
-    grid = Grid(50, 50, num_channels, seed=seed, weights=weights)
+    grid = Grid(
+        removal_iterations,
+        removal_iterations,
+        num_channels,
+        50,
+        50,
+        seed=seed,
+        weights=weights,
+    )
 
     delay = args.delay  # pyright: ignore[reportAttributeAccessIssue]
     arg_type = args.type  # pyright: ignore[reportAttributeAccessIssue]
@@ -281,13 +329,31 @@ def main() -> None:
     max_time = args.testing_time  # pyright: ignore[reportAttributeAccessIssue]
 
     if arg_type == "random":
-        random_destruction(grid, delay, max_time)
+        survival_times, surviving_cells, removed = random_destruction(
+            grid, delay, max_time
+        )
     elif arg_type == "channel":
-        channel_destruction(grid, delay, max_time, channel)
+        survival_times, surviving_cells, removed = channel_destruction(
+            grid, delay, max_time, channel
+        )
     elif arg_type == "blob":
-        blob_destruction(grid, delay, max_time)
+        survival_times, surviving_cells, removed = blob_destruction(
+            grid, delay, max_time
+        )
     elif arg_type == "channel_mask":
-        channel_mask_destruction(grid, delay, max_time, channel, seed=seed)
+        survival_times, surviving_cells, removed = channel_mask_destruction(
+            grid, delay, max_time, channel, seed=seed
+        )
+    else:  # pragma: no cover
+        raise ValueError(f"Unknown arg_type: {arg_type}")
+
+    # Save results to CSV
+    csv_folder = data_path / "MCAF"
+    csv_folder.mkdir(parents=True, exist_ok=True)
+    survive_path = csv_folder / f"{arg_type}_{weight_path.stem}_count.csv"
+    save_stats(survive_path, removed, surviving_cells)
+    survive_path = csv_folder / f"{arg_type}_{weight_path.stem}_time.csv"
+    save_stats(survive_path, removed, survival_times)
 
 
 if __name__ == "__main__":

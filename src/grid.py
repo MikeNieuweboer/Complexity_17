@@ -373,6 +373,11 @@ class Grid:
         """Current NN weights tuple, or None if not set."""
         return getattr(self, "_weights", None)
 
+    @property
+    def empty(self) -> torch.Tensor:
+        """An empty state vector using the current number of channels."""
+        return torch.zeros(self._num_channels)
+
 
 def main():
     # settings
