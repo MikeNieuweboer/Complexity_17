@@ -65,11 +65,9 @@ class Pool:
         self._states[indices] = new_states.detach()
 
 
-def damage_batch(
-    states: torch.Tensor,
-    device: torch.device,
-    radius_range: tuple[float, float] = (0.1, 0.4),
-) -> torch.Tensor:
+def damage_batch(states: torch.Tensor, device: torch.device,
+                 radius_range: tuple = (0.1, 0.4),
+                 damage_prob: float = 0.2):
     """Apply a circular damage mask to a batch of states (zeros out a region).
 
     Args:
@@ -81,37 +79,35 @@ def damage_batch(
     B, H, W, C = states.shape
     r_min, r_max = radius_range
 
+    # copy as to not change original tensor
     damaged_states = states.clone()
 
-    # (H, W)
-    y = torch.arange(H, device=device)
-    x = torch.arange(W, device=device)
-    grid_y, grid_x = torch.meshgrid(y, x, indexing="ij")
+    # create grid
+    y_range = torch.arange(H, device=device)
+    x_range = torch.arange(W, device=device)
+    grid_y, grid_x = torch.meshgrid(y_range, x_range, indexing='ij')
 
-    # Expand to (1, H, W) so it can broadcast against (B, 1, 1)
-    grid_x = grid_x.unsqueeze(0)  # (1, H, W)
-    grid_y = grid_y.unsqueeze(0)  # (1, H, W)
+    for i in range(B):
+        # get random damage patch center and radius
+        center_x = torch.rand(1, device=device).item() * W
+        center_y = torch.rand(1, device=device).item() * H
 
-    # Random centers per batch element: (B, 1, 1)
-    center_x = torch.rand(B, device=device) * W
-    center_y = torch.rand(B, device=device) * H
-    center_x = center_x.view(B, 1, 1)
-    center_y = center_y.view(B, 1, 1)
+        radius_frac = (torch.rand(1, device=device).item() * (r_max - r_min)) + r_min
+        radius_pixels = radius_frac * W
 
-    # Random radius per batch element: (B, 1, 1)
-    radius_frac = torch.rand(B, device=device) * (r_max - r_min) + r_min
-    radius_px = (radius_frac * W).view(B, 1, 1)
+        # get the squared distance for every pixel at once
+        dist_sq = (grid_x - center_x)**2 + (grid_y - center_y)**2
 
-    # Squared distances: (B, H, W)
-    dist_sq = (grid_x - center_x) ** 2 + (grid_y - center_y) ** 2
+        # mask to see if the pixel lies outside the circle
+        mask_2d = dist_sq > radius_pixels**2
 
-    # Keep outside circle (B, H, W, 1)
-    mask = (dist_sq > radius_px ** 2).unsqueeze(-1)
+        # convert (H, W) mask to (H, W, 1) mask to damage
+        # also all channels of the grid
+        mask_3d = mask_2d.unsqueeze(-1)
 
-    # Apply to all channels
-    damaged_states *= mask.to(damaged_states.dtype)
+        damaged_states[i] *= mask_3d.float()
+
     return damaged_states
-
 
 
 def generate_circle_target(grid_size: int, n_channels: int, device: torch.device) -> torch.Tensor:
@@ -237,10 +233,10 @@ def train(grid_size: int = 30, n_channels: int = 5, hidden_size: int = 32,
 
 
     # to visualize the best weights
-    weights = torch.load(best_weights_path, map_location=device)
-    grid.set_weights_on_nn_from_tens(weights)
-    grid.clear_and_seed()
-    states = grid.run_simulation(150, record_history=True)
+    # weights = torch.load(best_weights_path, map_location=device)
+    # grid.set_weights_on_nn_from_tens(weights)
+    # grid.clear_and_seed()
+    # states = grid.run_simulation(150, record_history=True)
     # animate_heatmaps(states)
 
 def main() -> None:
