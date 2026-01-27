@@ -5,12 +5,9 @@ from typing import TYPE_CHECKING
 import numpy as np
 import torch
 from torch.nn import functional
-<<<<<<< HEAD
 from tqdm import trange
 
 import numpy as np
-=======
->>>>>>> 1d78137 (Reconnected the ui with the grid)
 
 from nn import NN
 
@@ -149,19 +146,6 @@ class Grid:
         self._weights = (
             hidden_tens.detach().cpu().numpy(),
             output_tens.detach().cpu().numpy(),
-<<<<<<< HEAD
-=======
-        )
-
-    def clear_and_seed(self) -> None:
-        """Initialize seed state vector in center of grid."""
-        seed_vec = torch.Tensor([1 for _ in range(self._num_channels)])
-
-        self._grid_state = torch.zeros(
-            (self._height, self._height, self._num_channels),
-            dtype=torch.float32,
-            device=self._device,
->>>>>>> 1d78137 (Reconnected the ui with the grid)
         )
 
     def set_batch(self, grid_idxs) -> None:
@@ -348,7 +332,6 @@ class Grid:
         masking_th: float = 0.1,
         *,
         record_history: bool = False,
-<<<<<<< HEAD
     ) -> torch.Tensor:
         """Run the batched CA and return results.
 
@@ -358,10 +341,6 @@ class Grid:
             If record_history=True: (T, B, C, H, W) where T = steps + 1
             Else: (B, C, H, W) final batch state
         """
-=======
-    ) -> Tensor:
-        """Run the grid CA for a fixed number of steps."""
->>>>>>> 1d78137 (Reconnected the ui with the grid)
         if record_history:
             hist = [self._batch.detach().clone()]
             batch = self._batch
@@ -409,7 +388,6 @@ class Grid:
         """Spatial grid shape (H, W)."""
         return (self._height, self._width)
 
-<<<<<<< HEAD
     # CPU
     @property
     def weights(self) -> tuple[npt.NDArray, ...] | None:
@@ -433,4 +411,3 @@ def main():
 
 if __name__ == "__main__":
     main()
->>>>>>> 1d78137 (Reconnected the ui with the grid)
