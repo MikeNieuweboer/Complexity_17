@@ -118,7 +118,7 @@ def train(
     # create filename for weights
     best_weights_path = WEIGHTS_DIR / f"Gr{grid_size}-Ch{n_channels}-Hi{hidden_size}_{curtime}.pt"
 
-    device = torch.device("cpu" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
     # target logic
