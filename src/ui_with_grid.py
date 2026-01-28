@@ -258,7 +258,8 @@ class MainWindow(QtWidgets.QWidget):
         x, y = col, row
 
         cell_np = self.grid.pool_state[grid_idx, :, y, x].copy()
-        cell_np[0] = 1.0
+        cell_np[:] = 1.0
+        
 
         cell_t = torch.from_numpy(cell_np)
         self.grid.set_cell_state(grid_idx, x, y, cell_t)
@@ -275,7 +276,7 @@ class MainWindow(QtWidgets.QWidget):
                 x, y = c, r
 
                 cell_np = self.grid.pool_state[grid_idx, :, y, x].copy()
-                cell_np[0] = 0.0
+                cell_np[:] = 0.0
 
                 cell_t = torch.from_numpy(cell_np)
                 self.grid.set_cell_state(grid_idx, x, y, cell_t)
