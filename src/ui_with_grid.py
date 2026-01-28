@@ -69,7 +69,7 @@ class ToolBar(QtWidgets.QWidget):
         self.speed_label = QtWidgets.QLabel("Simulation Speed: 1")
         self.speed_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.speed_slider.setMinimum(1)
-        self.speed_slider.setMaximum(10)
+        self.speed_slider.setMaximum(1000)
         self.speed_slider.setValue(1)
 
         self.erase_label = QtWidgets.QLabel("Erase Size: 1")
@@ -170,9 +170,15 @@ class MainWindow(QtWidgets.QWidget):
         next_step_function: Callable | None = None,
         analysis_tool: dict[str, Callable[[npt.NDArray], Any]] | None = None,
     ) -> None:
-        
-        #TODO num channels?
-        self.grid = Grid(poolsize=1, batch_size=1, num_channels=5, width=gridsize, height=gridsize, device="cpu")
+        # TODO num channels?
+        self.grid = Grid(
+            poolsize=1,
+            batch_size=1,
+            num_channels=5,
+            width=gridsize,
+            height=gridsize,
+            device="cpu",
+        )
 
         # initial settings
         if analysis_tool is None:
@@ -209,7 +215,7 @@ class MainWindow(QtWidgets.QWidget):
         self.setWindowTitle("Evolution simulator")
         self.resize(600, 600)
 
-    #TODO
+    # TODO
     def step_simulation(self) -> None:
         if self.next_step_function is None:
             self.grid.simulate_simple()
@@ -228,6 +234,16 @@ class MainWindow(QtWidgets.QWidget):
             self.timer.stop()
 
     def _set_weights(self, weights: tuple[npt.NDArray, ...]) -> None:
+        num_channels = weights[1].shape[1]
+        self.grid = Grid(
+            poolsize=1,
+            batch_size=1,
+            num_channels=num_channels,
+            width=gridsize,
+            height=gridsize,
+            device="cpu",
+        )
+
         self.grid.set_weights_on_nn(weights)
 
     def _set_sim_speed(self, speed: int) -> None:
@@ -259,7 +275,7 @@ class MainWindow(QtWidgets.QWidget):
                 x, y = c, r
 
                 cell_np = self.grid.pool_state[grid_idx, :, y, x].copy()
-                cell_np[0] = 0.
+                cell_np[0] = 0.0
 
                 cell_t = torch.from_numpy(cell_np)
                 self.grid.set_cell_state(grid_idx, x, y, cell_t)
@@ -267,12 +283,12 @@ class MainWindow(QtWidgets.QWidget):
         self.grid_view.update_grid(self.grid.pool_state[0][0])
 
     def _reset_grid(self) -> None:
-        seed_vec = self.grid_view.seed_vector.to(dtype=torch.float32)
-        self.grid.clear_and_seed(grid_idx=0,seed_vector=seed_vec)
+        self.grid.clear_and_seed(grid_idx=0)
         self.grid_view.update_grid(self.grid.pool_state[0][0])
         # self.toolbar.update_analysis_tool_label(
         #     self.toolbar.analysis_tool.currentText(),
         # )
+
     # def get_grid(self) -> Grid:
     #     return self.grid
 
@@ -306,8 +322,7 @@ class GridView(FigureCanvas):
         self.norm = BoundaryNorm([0, 1, 2], self.cmap.N)
         self.im = self.ax.imshow(
             self.current_state,
-            cmap=self.cmap,
-            norm=self.norm,
+            cmap="Greys",
             origin="upper",
             interpolation="nearest",
         )
@@ -377,7 +392,7 @@ def get_filled_circle_coordinates(
     return coordinates
 
 
-#TODO
+# TODO
 def test_CA(grid_state: npt.NDArray) -> npt.NDArray:
     # testing a simple CA update rule
     new_grid = np.copy(grid_state)
@@ -387,6 +402,7 @@ def test_CA(grid_state: npt.NDArray) -> npt.NDArray:
             if any(grid_state[i - 1 : i + 2, j]) or any(grid_state[i, j - 1 : j + 2]):
                 new_grid[i, j] = 1
     return new_grid
+
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
