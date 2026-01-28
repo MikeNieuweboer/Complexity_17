@@ -29,6 +29,9 @@ def plot_heatmaps(tens: torch.Tensor,
         suptitle:   Title for the grid of heatmaps
 
     """
+    if isinstance(tens, torch.Tensor):
+        tens = tens.detach().cpu().numpy()
+
     num_maps = tens.shape[2]
 
     side_len = ceil(np.sqrt(num_maps))
