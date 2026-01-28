@@ -12,6 +12,9 @@ from nn import NN
 from plotting import plot_heatmaps
 from utils import load_target_image
 
+from plotting import enable_live_heatmaps, close_live_heatmaps, enable_live_loss
+
+
 # create directories for loading and saving
 ROOT_DIR = Path(__file__).parent.parent
 WEIGHTS_DIR = ROOT_DIR / "weights"
@@ -103,7 +106,7 @@ def train(
     masking_th: float = 0.1,
     pool_size: int = 64,
     batch_size: int = 8,
-    plot_steps: list[int] | None = None,
+    saveplot_steps: list[int] | None = None,
     n_to_damage: int = 2,
     damage_radius_range: tuple[float, float] = (0.1, 0.2),
     target_pattern: torch.Tensor | None = None,
@@ -232,36 +235,65 @@ def train(
             csv_writer.writerow([step_idx, loss.item()])
             csv_file.flush()
 
-            if plot_steps and step_idx in plot_steps:
-                plot_heatmaps(grid.batch_state.detach()[:, 0, :, :].permute(1, 2, 0),
-                            data_dir / f"step_{str(step_idx).zfill(len(str(steps)))}",
-                            "Batch Index",
-                            f"Alpha Channel of Batch {step_idx}",
-                            )
+            if saveplot_steps and step_idx in saveplot_steps:
+                plot_heatmaps(
+                    grid.batch_state.detach()[:, 0, :, :].permute(1, 2, 0),
+                    None,
+                    "Batch Index",
+                    f"Alpha Channel of Batch {step_idx}",
+                    loss=loss.item(),
+                )
+
+            else:
+                plot_heatmaps(
+                    grid.batch_state.detach()[:, 0, :, :].permute(1, 2, 0),
+                    None,
+                    "Batch Index",
+                    f"Alpha Channel of Batch {step_idx}",
+                    loss=loss.item(),
+                )
+
 
 
 def main() -> None:
-    target = load_target_image(DATA_DIR / "targets" / "amongus.png", grid_size=50)
-    plot_steps = [1, *list(range(10, 101, 10)), *list(range(150, 2001, 50))]
+    target = load_target_image(DATA_DIR / "targets" / "dinosaur.png", grid_size=64)
+    saveplot_steps = [1, *list(range(10, 101, 10)), *list(range(150, 3001, 50))]
+
+    enable_live_heatmaps(
+        pause_s=0.001,
+        vmin=0.0,
+        vmax=1.0,
+        cmap="inferno",
+        comptitle="Batch Index",
+        suptitle="Alpha Channel (live)",
+        throttle_every=5,  # set to 5 or 10 if GUI slows training
+    )
+
+    enable_live_loss(max_points=2000, title="Training loss")
 
     params = {
-        "grid_size": 50,
+        "grid_size": 64,
         "n_channels": 8,
         "hidden_size": 64,
-        "steps": 2000,
-        "min_steps": 50,
-        "max_steps": 90,
+        "steps": 3000,
+        "min_steps": 64,
+        "max_steps": 96,
         "lr": 2e-3,
         "update_prob": 0.5,
         "masking_th": 0.1,
         "pool_size": 64,
         "batch_size": 8,
-        "plot_steps": plot_steps,
-        "n_to_damage": 2,
+        "saveplot_steps": saveplot_steps,
+        "n_to_damage": 3,
         "damage_radius_range": (0.1, 0.2),
         "target_pattern": target,
     }
-    train(**params)
+
+    try:
+        train(**params)
+    finally:
+        close_live_heatmaps()
+
 
 
 if __name__ == "__main__":
