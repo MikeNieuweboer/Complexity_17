@@ -140,76 +140,82 @@ def _simulate_to_end(grid: Grid, max_time: int) -> int:
 #     return survival_times, surviving_cells, removed
 
 
-# def find_start_flood(grid: Grid, gen: np.random.Generator) -> tuple[int, int]:
-#     state = grid.state()
-#     indices = np.where(state[:, :, 0] > 0)
-#     removed_index = int(gen.choice(range(len(indices[0])), 1)[0])
-#     row = int(indices[0][removed_index])
-#     column = int(indices[1][removed_index])
-#     return (row, column)
+def find_start_flood(grid: Grid, gen: np.random.Generator) -> tuple[int, int]:
+    state = grid.batch_state.detach().squeeze(0).numpy()
+    indices = np.where(state[0, :, :] > 0)
+    removed_index = int(gen.choice(range(len(indices[0])), 1)[0])
+    row = int(indices[0][removed_index])
+    column = int(indices[1][removed_index])
+    return (row, column)
 
 
-# def flood_fill_step(queue: list[tuple[int, int]], grid: Grid, gen: np.random.Generator):
-#     state = grid.state()
+def flood_fill_step(queue: list[tuple[int, int]], grid: Grid, gen: np.random.Generator):
+    state = grid.pool_state.squeeze(0)
 
-#     if queue == []:
-#         row, column = find_start_flood(grid, gen)
-#     else:
-#         row, column = queue.pop()
-#         while (state[row, column, 0] == 0) and (queue != []):
-#             row, column = queue.pop()
+    if queue == []:
+        row, column = find_start_flood(grid, gen)
+    else:
+        row, column = queue.pop()
+        while (state[0, row, column] == 0) and (queue != []):
+            row, column = queue.pop()
 
-#         if queue == []:
-#             row, column = find_start_flood(grid, gen)
+        if queue == []:
+            row, column = find_start_flood(grid, gen)
 
-#     grid.set_cell_state(column, row, grid.empty)
+    grid.set_cell_state(0, column, row, grid.empty)
 
-#     # Check all surrounding cells
-#     for row_offset in range(-1, 2):
-#         for column_offset in range(-1, 2):
-#             new_row = row + row_offset
-#             new_column = column + column_offset
+    # Check all surrounding cells
+    for row_offset in range(-1, 2):
+        for column_offset in range(-1, 2):
+            new_row = row + row_offset
+            new_column = column + column_offset
 
-#             # If cell is alive
-#             if state[new_row, new_column, 0] > 0:
-#                 queue.insert(0, (new_row, new_column))
+            # If cell is alive
+            if state[0, new_row, new_column] > 0:
+                queue.insert(0, (new_row, new_column))
 
 
-# def blob_destruction(
-#     grid: Grid, delay: int, max_time: int, *, seed: int = 43
-# ) -> tuple[list[list[int]], list[list[int]], npt.NDArray]:
-#     grid = grid.deepcopy()
-#     gen = np.random.Generator(np.random.PCG64(seed))
+def blob_destruction(
+    grid: Grid, delay: int, max_time: int, *, seed: int = 43
+) -> tuple[list[list[int]], list[list[int]], npt.NDArray]:
+    iterations = 20
 
-#     local_state = grid.run_simulation(delay)
-#     alpha = local_state.detach().numpy()[:, :, 0]
-#     alive = alpha > 0
+    survival_times = [[] for _ in range(iterations)]
+    surviving_cells = [[] for _ in range(iterations)]
 
-#     total = np.sum(alive)
+    gen = np.random.Generator(np.random.PCG64(seed))
+    for i in tqdm(range(iterations)):
+        grid.clear_and_seed(grid_idx=0)
+        grid.set_batch([0])
+        grid.load_batch_from_pool()
 
-#     iterations = 10
+        local_state = grid.run_simulation(delay).squeeze(0)
+        queue = [find_start_flood(grid, gen)]
 
-#     survival_times = [[] for _ in range(iterations)]
-#     surviving_cells = [[] for _ in range(iterations)]
-#     for i in tqdm(range(iterations)):
-#         local_grid = grid.deepcopy()
+        grid.write_batch_back_to_pool()
 
-#         queue = [find_start_flood(local_grid, gen)]
+        alpha = local_state.detach().numpy()[0, :, :]
+        alive = alpha > 0
 
-#         last_removed = 0
-#         for ratio in np.linspace(0, 1, 50):
-#             removals = int(total * ratio) - last_removed
-#             for _ in range(removals):
-#                 flood_fill_step(queue, local_grid, gen)
-#             last_removed += removals
+        total = np.sum(alive)
 
-#             local_grid_copy = local_grid.deepcopy()
-#             survival_time = _simulate_to_end(local_grid_copy, max_time)
-#             survival_times[i].append(survival_time)
+        last_removed = 0
+        for ratio in np.linspace(0, 1, removal_iterations):
+            removals = int(total * ratio) - last_removed
+            for _ in range(removals):
+                flood_fill_step(queue, grid, gen)
+            last_removed += removals
 
-#             surviving_cells[i].append(np.sum(local_grid_copy.state(layer=0) > 0))
-#     removed = (np.linspace(0, 1, 50) * total).astype(int)
-#     return survival_times, surviving_cells, removed
+            grid.set_batch([0])
+            grid.load_batch_from_pool()
+            survival_time = _simulate_to_end(grid, max_time)
+            survival_times[i].append(survival_time)
+
+            surviving_cells[i].append(
+                np.sum(grid.batch_state.detach().squeeze(0).numpy()[0, :, :] > 0)
+            )
+    removed = (np.linspace(0, 1, removal_iterations) * total).astype(int)
+    return survival_times, surviving_cells, removed
 
 
 def random_destruction(
@@ -222,14 +228,13 @@ def random_destruction(
     empty = grid.empty
     grid_state = grid.run_simulation(delay).squeeze(0)
     grid.write_batch_back_to_pool()
-    print(np.sum(grid.batch_state.detach().squeeze(0).numpy()[0, :, :] > 0))
 
     alpha = grid_state.detach().numpy()[0, :, :]
     alive = alpha > 0
 
     total = np.sum(alive)
     indices = np.where(alive)
-    iterations = 1
+    iterations = 20
 
     survival_times = [[] for _ in range(iterations)]
     surviving_cells = [[] for _ in range(iterations)]
@@ -258,7 +263,7 @@ def random_destruction(
             surviving_cells[i].append(
                 np.sum(grid.batch_state.detach().squeeze(0).numpy()[0, :, :] > 0)
             )
-    removed = (np.linspace(0, 1, 50) * total).astype(int)
+    removed = (np.linspace(0, 1, removal_iterations) * total).astype(int)
     return survival_times, surviving_cells, removed
 
 
@@ -342,10 +347,10 @@ def main() -> None:
     #     survival_times, surviving_cells, removed = channel_destruction(
     #         grid, delay, max_time, channel
     #     )
-    # elif arg_type == "blob":
-    #     survival_times, surviving_cells, removed = blob_destruction(
-    #         grid, delay, max_time
-    #     )
+    elif arg_type == "blob":
+        survival_times, surviving_cells, removed = blob_destruction(
+            grid, delay, max_time
+        )
     # elif arg_type == "channel_mask":
     #     survival_times, surviving_cells, removed = channel_mask_destruction(
     #         grid, delay, max_time, channel, seed=seed
