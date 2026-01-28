@@ -118,7 +118,7 @@ def main() -> None:
     removed, count_data = read_data(count_path)
     _, time_data = read_data(time_path)
 
-    plot_count(removed, count_data, mcaf_type)
+    plot_time(removed, time_data, mcaf_type)
     plt.show()
 
 

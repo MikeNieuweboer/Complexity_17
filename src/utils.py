@@ -61,6 +61,7 @@ def load_weights(path: Path) -> tuple[npt.NDArray, npt.NDArray]:
     msg = f"Unsupported file format: {path.suffix}. Expected .npz or .pt"
     raise ValueError(msg)
 
+
 def load_target_image(image_path: Path, grid_size: int) -> torch.Tensor:
     """Load an image, to utilize as a target for training.
 
@@ -74,7 +75,8 @@ def load_target_image(image_path: Path, grid_size: int) -> torch.Tensor:
 
     """
     if not image_path.exists():
-        raise FileNotFoundError(f"Image not found at {image_path}")
+        error = f"Image not found at {image_path}"
+        raise FileNotFoundError(error)
 
     # load and process
     with Image.open(image_path) as raw_img:
@@ -93,6 +95,7 @@ def load_target_image(image_path: Path, grid_size: int) -> torch.Tensor:
 
     # Optional: Hard threshold to make it strictly black/white (binary)
     return torch.from_numpy(target_data)
+
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
