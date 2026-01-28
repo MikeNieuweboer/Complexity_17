@@ -33,7 +33,7 @@ def plot_heatmaps(tens: torch.Tensor,
 
     side_len = ceil(np.sqrt(num_maps))
     fig, axes = plt.subplots(ceil(num_maps/side_len), side_len,
-                             sharex=True, sharey=True)
+                             sharex=True, sharey=True, constrained_layout=True)
 
     for i, ax in enumerate(np.asarray(axes).flatten()):
         if i >= num_maps:
@@ -51,6 +51,7 @@ def plot_heatmaps(tens: torch.Tensor,
         fig.suptitle(suptitle)
 
     plt.savefig(save_path, dpi=300)
+    plt.close(fig)
 
 def animate_heatmaps(tens: torch.Tensor,
                      save_path: Path,
@@ -77,7 +78,7 @@ def animate_heatmaps(tens: torch.Tensor,
     n_frames, _, _, num_maps = tens.shape
     side_len = ceil(np.sqrt(num_maps))
     fig, axes = plt.subplots(ceil(num_maps/side_len), side_len,
-                             sharex=True, sharey=True, figsize=(10, 10))
+                             sharex=True, sharey=True, constrained_layout=True)
 
     images = []
     for i, ax in enumerate(np.asarray(axes).flatten()):
@@ -104,13 +105,14 @@ def animate_heatmaps(tens: torch.Tensor,
 
     anim = FuncAnimation(fig, update, frames=n_frames, interval=interval, blit=True)
     anim.save(save_path, fps=1000//interval)
+    plt.close(fig)
 
 if __name__ == "__main__":
     # TESTING PLOTS
     # setting up directories
     root_dir = Path(__file__).parent.parent
     weights_dir = root_dir / "weights"
-    best_weights_path = weights_dir / "GOLDEN_WEIGHTS.pt"
+    best_weights_path = weights_dir / "Gr50-Ch8-Hi64_20260127-230604.pt"
 
     temp_dir = root_dir / "temp_figs"
     temp_dir.mkdir(exist_ok=True, parents=True)
@@ -146,4 +148,3 @@ if __name__ == "__main__":
                      temp_dir / "temp_anim.mp4",
                      "Channel",
                      "Training Animation")
-

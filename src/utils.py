@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 import torch
+from PIL import Image
 
 
 def load_weights(path: Path) -> tuple[npt.NDArray, npt.NDArray]:
@@ -46,3 +47,50 @@ def load_weights(path: Path) -> tuple[npt.NDArray, npt.NDArray]:
         return (weights[0], weights[1])
     msg = f"Unsupported file format: {path.suffix}. Expected .npz or .pt"
     raise ValueError(msg)
+
+def load_target_image(image_path: Path, grid_size: int) -> torch.Tensor:
+    """Load an image, to utilize as a target for training.
+
+    Process:
+    1. Opens image and converts to Grayscale ('L').
+    2. Resizes to (grid_size, grid_size).
+    3. Normalizes pixel values to [0.0, 1.0].
+
+    Returns:
+        torch.Tensor: A tensor of shape (H, W) on the specified device.
+
+    """
+    if not image_path.exists():
+        raise FileNotFoundError(f"Image not found at {image_path}")
+
+    # load and process
+    with Image.open(image_path) as raw_img:
+        img = raw_img.convert("L")
+    img = img.resize((grid_size, grid_size), Image.Resampling.LANCZOS)
+
+    # convert to numpy -> tensor -> normalize
+    img_data = np.array(img, dtype=np.float32) / 255.0
+
+    # we need black=1.0, and white=0
+    target_data = 1.0 - img_data
+
+    # force close to 0 and 1 to be exactly that
+    target_data[target_data > 0.9] = 1
+    target_data[target_data < 0.1] = 0
+
+    # Optional: Hard threshold to make it strictly black/white (binary)
+    return torch.from_numpy(target_data)
+
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+
+    device = torch.device("gpu" if torch.cuda.is_available() else "cpu")
+
+    root_dir = Path(__file__).parent.parent
+    data_dir = root_dir / "data"
+    image_path = data_dir / "targets" / "star.png"
+
+    tens = load_target_image(image_path, 50)
+
+    plt.imshow(tens)
+    plt.show()
