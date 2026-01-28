@@ -51,6 +51,7 @@ def plot_heatmaps(tens: torch.Tensor,
         fig.suptitle(suptitle)
 
     plt.savefig(save_path, dpi=300)
+    plt.close(fig)
 
 def animate_heatmaps(tens: torch.Tensor,
                      save_path: Path,
@@ -104,13 +105,14 @@ def animate_heatmaps(tens: torch.Tensor,
 
     anim = FuncAnimation(fig, update, frames=n_frames, interval=interval, blit=True)
     anim.save(save_path, fps=1000//interval)
+    plt.close(fig)
 
 if __name__ == "__main__":
     # TESTING PLOTS
     # setting up directories
     root_dir = Path(__file__).parent.parent
     weights_dir = root_dir / "weights"
-    best_weights_path = weights_dir / "GOLDEN_WEIGHTS.pt"
+    best_weights_path = weights_dir / "Gr50-Ch8-Hi64_20260127-230604.pt"
 
     temp_dir = root_dir / "temp_figs"
     temp_dir.mkdir(exist_ok=True, parents=True)

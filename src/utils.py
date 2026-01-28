@@ -64,7 +64,8 @@ def load_target_image(image_path: Path, grid_size: int) -> torch.Tensor:
         raise FileNotFoundError(f"Image not found at {image_path}")
 
     # load and process
-    img = Image.open(image_path).convert("L")
+    with Image.open(image_path) as raw_img:
+        img = raw_img.convert("L")
     img = img.resize((grid_size, grid_size), Image.Resampling.LANCZOS)
 
     # convert to numpy -> tensor -> normalize

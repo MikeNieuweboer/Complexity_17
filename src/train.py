@@ -118,12 +118,6 @@ def train(
     # create filename for weights
     best_weights_path = WEIGHTS_DIR / f"Gr{grid_size}-Ch{n_channels}-Hi{hidden_size}_{curtime}.pt"
 
-    # create csv to store loss
-    csv_path = data_dir / "loss.csv"
-    csv_file = Path.open(csv_path, mode="w", newline="")
-    csv_writer = csv.writer(csv_file)
-    csv_writer.writerow(["step", "loss"])
-
     device = torch.device("cpu" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
@@ -248,13 +242,13 @@ def train(
 
 def main() -> None:
     target = load_target_image(DATA_DIR / "targets" / "amongus.png", grid_size=50)
-    plot_steps = [1, *list(range(10, 101, 10)), *list(range(150, 1001, 50))]
+    plot_steps = [1, *list(range(10, 101, 10)), *list(range(150, 2001, 50))]
 
     params = {
         "grid_size": 50,
         "n_channels": 8,
         "hidden_size": 64,
-        "steps": 100,
+        "steps": 2000,
         "min_steps": 50,
         "max_steps": 90,
         "lr": 2e-3,

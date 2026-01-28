@@ -178,7 +178,7 @@ class Grid:
         if self._batch_idxs is None:
             raise ValueError("Batch indices not set.")
         idxs = self._batch_idxs.to(self._device)
-        self._grids[idxs] = self._batch
+        self._grids[idxs] = self._batch.detach()
 
     def sample_batch(self) -> torch.Tensor:
         """Randomly choose pool indices, load them into the batch, and return the indices."""
