@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 # tqdm
 import numpy as np
 import numpy.typing as npt
+from sympy import im
 import torch
 from matplotlib.backends.backend_qtagg import (
     FigureCanvas,  # pyright: ignore[reportAttributeAccessIssue]
@@ -33,6 +34,7 @@ class ToolBar(QtWidgets.QWidget):
     step_requested = QtCore.pyqtSignal(bool)
     update_toggle = QtCore.pyqtSignal(bool)
     reset_requested = QtCore.pyqtSignal(bool)
+    show_hidden_layers_requested = QtCore.pyqtSignal(bool)
     sim_speed_requested = QtCore.pyqtSignal(int)
     erase_size_requested = QtCore.pyqtSignal(int)
     on_new_weights = QtCore.pyqtSignal(tuple)
@@ -54,6 +56,11 @@ class ToolBar(QtWidgets.QWidget):
             "",
             *(list(analysis_tool.keys()) if analysis_tool is not None else []),
         ]
+        self.show_hide_hidden_layers_button = QtWidgets.QPushButton("Show Hidden Layers")
+        self.show_hide_hidden_layers_button.setCheckable(True)
+        
+        
+        
         self.analysis_tool = QtWidgets.QComboBox()
         self.analysis_tool.addItems(combobox_items)
         self.analysis_tool_label = QtWidgets.QLabel("^ choose analysis tool")
@@ -85,10 +92,12 @@ class ToolBar(QtWidgets.QWidget):
         self.speed_slider.valueChanged.connect(self._change_sim_speed)
         self.erase_slider.valueChanged.connect(self._change_erase_size)
         self.file_picker.clicked.connect(self._open_weight_picker)
+        self.show_hide_hidden_layers_button.toggled.connect(self.show_hidden_layers_requested)
         # self.analysis_tool.currentTextChanged.connect(self.update_analysis_tool_label)
 
         # vertical layout of the toolbar buttons and sliders
         layout = QtWidgets.QVBoxLayout()
+        layout.addWidget(self.show_hide_hidden_layers_button)
         layout.addWidget(self.analysis_tool)
         layout.addWidget(self.analysis_tool_label)
         layout.addWidget(self.file_picker)
@@ -138,16 +147,16 @@ class ToolBar(QtWidgets.QWidget):
     def _reset_clicked(self) -> None:
         self.reset_requested.emit(True)  # noqa: FBT003
 
-    # def update_analysis_tool_label(self, text: str) -> None:
-    #     if text == "":
-    #         self.analysis_tool_label.setText("^ choose analysis tool")
-    #     elif self.grid is None:
-    #         self.analysis_tool_label.setText("run simulation step to analyze")
-    #     else:
-    #         grid = self._parent.get_grid()
-    #         self.analysis_tool_label.setText(
-    #             str(self._analysis_tool[text](grid.state(layer=0))),
-    #         )
+    def update_analysis_tool_label(self, text: str) -> None:
+        grid = self._parent.grid
+        if text == "":
+            self.analysis_tool_label.setText("^ choose analysis tool")
+        elif grid is None:
+            self.analysis_tool_label.setText("run simulation step to analyze")
+        else:
+            self.analysis_tool_label.setText(
+                str(self._analysis_tool[text](grid.pool_state[0,0])),
+            )
 
 
 class MainWindow(QtWidgets.QWidget):
@@ -174,7 +183,7 @@ class MainWindow(QtWidgets.QWidget):
         self.grid = Grid(
             poolsize=1,
             batch_size=1,
-            num_channels=5,
+            num_channels=8,
             width=gridsize,
             height=gridsize,
             device="cpu",
@@ -188,6 +197,8 @@ class MainWindow(QtWidgets.QWidget):
         self.erase_size = 1
         super().__init__()
         self.grid_view = GridView(self.grid)
+        self.hidden_layers = HiddenGridLayers(self.grid, hidden_layer_count=self.grid._num_channels)
+        self.hidden_layers.hide()
         self.toolbar = ToolBar(self, analysis_tool=analysis_tool)
 
         # timer for simulation speed
@@ -199,6 +210,7 @@ class MainWindow(QtWidgets.QWidget):
         layout = QtWidgets.QHBoxLayout()
         layout.addWidget(self.grid_view)
         layout.addWidget(self.toolbar)
+        layout.addWidget(self.hidden_layers)
         self.setLayout(layout)
 
         # connecting buttons and sliders to functions
@@ -210,7 +222,7 @@ class MainWindow(QtWidgets.QWidget):
         self.toolbar.erase_size_requested.connect(self._set_erase_size)
         self.toolbar.reset_requested.connect(self._reset_grid)
         self.toolbar.on_new_weights.connect(self._set_weights)
-
+        self.toolbar.show_hidden_layers_requested.connect(self._show_hide_hidden_layers)   
         # window settings
         self.setWindowTitle("Evolution simulator")
         self.resize(600, 600)
@@ -218,14 +230,26 @@ class MainWindow(QtWidgets.QWidget):
     # TODO
     def step_simulation(self) -> None:
         if self.next_step_function is None:
-            self.grid.simulate_simple()
+            try:
+                self.grid.simulate_simple()
+            except RuntimeError as error:
+                print(error)
+                return
             new_state = self.grid.pool_state[0][0]
             self.grid_view.update_grid(new_state)
-            # self.toolbar.update_analysis_tool_label(
-            #     self.toolbar.analysis_tool.currentText(),
-            # )
+            self.hidden_layers.update_layers(self.grid.pool_state[0,:,:,:])
+            self.toolbar.update_analysis_tool_label(
+                self.toolbar.analysis_tool.currentText(),
+            )
         else:
             self.next_step_function(self.grid.pool_state[0, 0])
+
+
+    def _show_hide_hidden_layers(self, checked: bool): 
+        if checked:
+            self.hidden_layers.show()
+        else:
+            self.hidden_layers.hide()
 
     def _on_play_toggled(self, checked: bool):  # noqa: FBT001
         if checked:
@@ -245,6 +269,9 @@ class MainWindow(QtWidgets.QWidget):
         )
 
         self.grid.set_weights_on_nn(weights)
+
+        self.grid_view.grid = self.grid
+        self.hidden_layers.rebuild(self.grid)
 
     def _set_sim_speed(self, speed: int) -> None:
         self.speed = speed
@@ -286,9 +313,9 @@ class MainWindow(QtWidgets.QWidget):
     def _reset_grid(self) -> None:
         self.grid.clear_and_seed(grid_idx=0)
         self.grid_view.update_grid(self.grid.pool_state[0][0])
-        # self.toolbar.update_analysis_tool_label(
-        #     self.toolbar.analysis_tool.currentText(),
-        # )
+        self.toolbar.update_analysis_tool_label(
+            self.toolbar.analysis_tool.currentText(),
+        )
 
     # def get_grid(self) -> Grid:
     #     return self.grid
@@ -309,15 +336,10 @@ class GridView(FigureCanvas):
         super().__init__(self.fig)
         self.setMinimumSize(QtCore.QSize(500, 500))
 
-        # grid setup
-        self.seed_vector = torch.zeros(5, dtype=torch.float32, device=None)
-        self.seed_vector[0] = 1.0  # aliveness
-        self.seed_vector[1:] = 0.0  # alpha channel
-
         # Get first (and only) grid in pool
         self.grid = grid
         self.current_state = grid.pool_state[0][0]
-        # TODO(sijmen): add combobox for person to change view to be drawn
+        
         # colormap setup
         self.cmap = ListedColormap(["white", "black"])
         self.norm = BoundaryNorm([0, 1, 2], self.cmap.N)
@@ -355,6 +377,82 @@ class GridView(FigureCanvas):
 
             elif event.button == 1:  # left click
                 self.erase_signal.emit(row, col)
+
+class HiddenGridLayers(FigureCanvas):
+    """The visualisation "widget" of the hidden layers of the grid."""
+
+    def __init__(self, grid: Grid, hidden_layer_count = None):
+        if hidden_layer_count is None:
+            hidden_layer_count = grid._num_channels
+
+        # setting up the matplotlib figure
+        self.fig = Figure(figsize=(5, 5))
+        super().__init__(self.fig)
+
+        self.hidden_layer_count = hidden_layer_count
+        self.grid = grid
+
+        self.images = []
+        self.axes = []
+
+
+        for i in range(self.hidden_layer_count):
+            ax = self.fig.add_subplot(3, 3, i+1)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            self.axes.append(ax)
+
+        self.current_state = grid.pool_state[0,:,:,:]
+    
+        for i in range(self.hidden_layer_count):
+            # TODO(sijmen): add combobox for person to change view to be drawn
+            # colormap setup
+            im = self.axes[i].imshow(
+                self.current_state[i,:,:],
+                cmap="viridis",
+                origin="upper",
+                interpolation="nearest",
+            )
+
+            self.images.append(im)
+        self.fig.tight_layout()
+        self.setMinimumSize(QtCore.QSize(500, 500))
+
+    def rebuild(self, grid) -> None:
+        self.grid = grid
+
+        self.fig.clf()
+        self.images.clear()
+        self.axes.clear()
+
+        self.hidden_layer_count = self.grid._num_channels
+
+        for i in range(self.hidden_layer_count):
+            ax = self.fig.add_subplot(3, 3, i+1)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            self.axes.append(ax)
+
+        self.current_state = self.grid.pool_state[0]
+        for i in range(self.hidden_layer_count):
+
+            # colormap setup
+            im = self.axes[i].imshow(
+                self.current_state[i,:,:],
+                cmap="viridis",
+                origin="upper",
+                interpolation="nearest",
+            )
+            self.images.append(im)
+        self.fig.tight_layout()
+        self.draw_idle()
+
+    def update_layers(self, new_state: npt.array) -> None:
+        for i in range(self.hidden_layer_count):
+            self.current_state = new_state[i,:,:]
+            self.images[i].set_data(self.current_state)
+        
+        self.draw_idle()
 
 
 def get_filled_circle_coordinates(
@@ -404,9 +502,12 @@ def test_CA(grid_state: npt.NDArray) -> npt.NDArray:
                 new_grid[i, j] = 1
     return new_grid
 
+def filled_calculator(grid:np.ndarray) -> float:
+    return np.sum(grid) / (grid.shape[0] * grid.shape[1])
 
 if __name__ == "__main__":
+    analysis_tool = {"Filled Calculator": filled_calculator}
     app = QtWidgets.QApplication(sys.argv)
-    w = MainWindow()
+    w = MainWindow(analysis_tool=analysis_tool)
     w.show()
     app.exec()
