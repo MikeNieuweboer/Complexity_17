@@ -147,16 +147,16 @@ class ToolBar(QtWidgets.QWidget):
     def _reset_clicked(self) -> None:
         self.reset_requested.emit(True)  # noqa: FBT003
 
-    # def update_analysis_tool_label(self, text: str) -> None:
-    #     if text == "":
-    #         self.analysis_tool_label.setText("^ choose analysis tool")
-    #     elif self.grid is None:
-    #         self.analysis_tool_label.setText("run simulation step to analyze")
-    #     else:
-    #         grid = self._parent.get_grid()
-    #         self.analysis_tool_label.setText(
-    #             str(self._analysis_tool[text](grid.state(layer=0))),
-    #         )
+    def update_analysis_tool_label(self, text: str) -> None:
+        grid = self._parent.grid
+        if text == "":
+            self.analysis_tool_label.setText("^ choose analysis tool")
+        elif grid is None:
+            self.analysis_tool_label.setText("run simulation step to analyze")
+        else:
+            self.analysis_tool_label.setText(
+                str(self._analysis_tool[text](grid.pool_state[0,0])),
+            )
 
 
 class MainWindow(QtWidgets.QWidget):
@@ -230,13 +230,17 @@ class MainWindow(QtWidgets.QWidget):
     # TODO
     def step_simulation(self) -> None:
         if self.next_step_function is None:
-            self.grid.simulate_simple()
+            try:
+                self.grid.simulate_simple()
+            except RuntimeError as error:
+                print(error)
+                return
             new_state = self.grid.pool_state[0][0]
             self.grid_view.update_grid(new_state)
             self.hidden_layers.update_layers(self.grid.pool_state[0,:,:,:])
-            # self.toolbar.update_analysis_tool_label(
-            #     self.toolbar.analysis_tool.currentText(),
-            # )
+            self.toolbar.update_analysis_tool_label(
+                self.toolbar.analysis_tool.currentText(),
+            )
         else:
             self.next_step_function(self.grid.pool_state[0, 0])
 
@@ -309,9 +313,9 @@ class MainWindow(QtWidgets.QWidget):
     def _reset_grid(self) -> None:
         self.grid.clear_and_seed(grid_idx=0)
         self.grid_view.update_grid(self.grid.pool_state[0][0])
-        # self.toolbar.update_analysis_tool_label(
-        #     self.toolbar.analysis_tool.currentText(),
-        # )
+        self.toolbar.update_analysis_tool_label(
+            self.toolbar.analysis_tool.currentText(),
+        )
 
     # def get_grid(self) -> Grid:
     #     return self.grid
@@ -411,6 +415,7 @@ class HiddenGridLayers(FigureCanvas):
             )
 
             self.images.append(im)
+        self.fig.tight_layout()
         self.setMinimumSize(QtCore.QSize(500, 500))
 
     def rebuild(self, grid) -> None:
@@ -497,9 +502,12 @@ def test_CA(grid_state: npt.NDArray) -> npt.NDArray:
                 new_grid[i, j] = 1
     return new_grid
 
+def filled_calculator(grid:np.ndarray) -> float:
+    return np.sum(grid) / (grid.shape[0] * grid.shape[1])
 
 if __name__ == "__main__":
+    analysis_tool = {"Filled Calculator": filled_calculator}
     app = QtWidgets.QApplication(sys.argv)
-    w = MainWindow()
+    w = MainWindow(analysis_tool=analysis_tool)
     w.show()
     app.exec()
