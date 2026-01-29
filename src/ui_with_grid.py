@@ -188,6 +188,7 @@ class MainWindow(QtWidgets.QWidget):
         self.erase_size = 1
         super().__init__()
         self.grid_view = GridView(self.grid)
+        self.hidden_layers = HiddenGridLayers(self.grid)
         self.toolbar = ToolBar(self, analysis_tool=analysis_tool)
 
         # timer for simulation speed
@@ -199,6 +200,7 @@ class MainWindow(QtWidgets.QWidget):
         layout = QtWidgets.QHBoxLayout()
         layout.addWidget(self.grid_view)
         layout.addWidget(self.toolbar)
+        layout.addWidget(self.hidden_layers)
         self.setLayout(layout)
 
         # connecting buttons and sliders to functions
@@ -221,6 +223,7 @@ class MainWindow(QtWidgets.QWidget):
             self.grid.simulate_simple()
             new_state = self.grid.pool_state[0][0]
             self.grid_view.update_grid(new_state)
+            self.hidden_layers.update_layers(self.grid.pool_state[0,:,:,:])
             # self.toolbar.update_analysis_tool_label(
             #     self.toolbar.analysis_tool.currentText(),
             # )
@@ -309,11 +312,6 @@ class GridView(FigureCanvas):
         super().__init__(self.fig)
         self.setMinimumSize(QtCore.QSize(500, 500))
 
-        # grid setup
-        self.seed_vector = torch.zeros(5, dtype=torch.float32, device=None)
-        self.seed_vector[0] = 1.0  # aliveness
-        self.seed_vector[1:] = 0.0  # alpha channel
-
         # Get first (and only) grid in pool
         self.grid = grid
         self.current_state = grid.pool_state[0][0]
@@ -355,6 +353,46 @@ class GridView(FigureCanvas):
 
             elif event.button == 1:  # left click
                 self.erase_signal.emit(row, col)
+
+class HiddenGridLayers(FigureCanvas):
+    # signals for mouse interactions
+    erase_signal = QtCore.pyqtSignal(int, int)
+    creation_signal = QtCore.pyqtSignal(int, int)
+
+    def __init__(self, grid: Grid, hidden_layer_count = 8):
+        # setting up the matplotlib figure
+        self.fig = Figure(figsize=(5, 5))
+        self.fig_dict = dict()
+        self.hidden_layer_count = hidden_layer_count
+        self.grid = grid
+        for i in range(self.hidden_layer_count):
+            self.fig_dict[f"ax{i}"] = self.fig.add_subplot(3, 3, i+1)
+        
+        for i in range(5):
+            self.current_state = grid.pool_state[0,:,:,:]
+            # TODO(sijmen): add combobox for person to change view to be drawn
+            # colormap setup
+            
+            self.cmap = ListedColormap(["white", "black"])
+            self.norm = BoundaryNorm([0, 1, 2], self.cmap.N)
+            self.im = self.fig_dict[f"ax{i}"].imshow(
+                self.current_state[i,:,:],
+                cmap="Greys",
+                origin="upper",
+                interpolation="nearest",
+            )
+            self.fig_dict[f"ax{i}"].set_xticks([])
+            self.fig_dict[f"ax{i}"].set_yticks([])
+        
+
+        super().__init__(self.fig)
+        self.setMinimumSize(QtCore.QSize(500, 500))
+
+    def update_layers(self, new_state: npt.array) -> None:
+        for i in range(5):
+            self.current_state = new_state[i,:,:]
+            self.im.set_data(self.current_state)
+            self.draw_idle()
 
 
 def get_filled_circle_coordinates(
