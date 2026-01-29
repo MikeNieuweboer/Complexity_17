@@ -2,10 +2,10 @@ import argparse
 import csv
 from pathlib import Path
 
-from matplotlib.axes import Axes
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
+from matplotlib.axes import Axes
 
 from utils import data_path
 
@@ -57,13 +57,14 @@ def bounds_data(data) -> tuple[npt.NDArray, npt.NDArray]:
 
 
 def style_axis(axis: Axes) -> None:
-    pass
+    axis.grid()
 
 
 def plot_time(
     removed: npt.NDArray,
-    time_data: npt.NDArray,
-    type: str,
+    mse_data: npt.NDArray,
+    count_data: npt.NDArray,
+    removal_type: str,
     *,
     axis: Axes | None = None,
 ) -> None:
@@ -71,24 +72,32 @@ def plot_time(
         _, axis = plt.subplots(nrows=1)
         style_axis(axis)
 
-    axis.set_title(f"Extinction with {type} removals")
+    axis.set_title(f"Recovery times with {removal_type} removals")
     axis.set_xlabel("Removals")
-    axis.set_ylabel("Extinction time (steps)")
+    axis.set_ylabel("Recovery time (steps)")
 
-    mean = mean_data(time_data)
-    # std = std_data(time_data)
-    # lower, upper = percentile_data(time_data, 5)
-    lower, upper = bounds_data(time_data)
+    mean = mean_data(mse_data)
+    lower, upper = percentile_data(mse_data, 5)
 
-    axis.plot(removed, mean, label="Mean")
-    axis.fill_between(removed, lower, upper, alpha=0.2, label="Bounds")
+    axis.plot(removed, mean, label="Mean MSE-based")
+    axis.fill_between(
+        removed, lower, upper, alpha=0.2, label="5th Percentile MSE-based"
+    )
+
+    mean = mean_data(count_data)
+    lower, upper = percentile_data(count_data, 5)
+
+    axis.plot(removed, mean, label="Mean Count-based")
+    axis.fill_between(
+        removed, lower, upper, alpha=0.2, label="5th Percentile Count-based"
+    )
 
     axis.legend()
 
 
-def plot_count(
+def plot_survived(
     removed: npt.NDArray,
-    count_data: npt.NDArray,
+    survived: npt.NDArray,
     type: str,
     *,
     axis: Axes | None = None,
@@ -97,12 +106,17 @@ def plot_count(
         _, axis = plt.subplots(nrows=1)
         style_axis(axis)
 
-    axis.set_title("Cell count with {type} removals after 1000 steps")
+    axis.set_title(f"Cell count with {type} removals after 4000 steps")
     axis.set_xlabel("Removals")
     axis.set_ylabel("Cell count")
 
-    mean = mean_data(count_data)
-    axis.plot(removed, mean)
+    mean = mean_data(survived)
+    lower, upper = percentile_data(survived, 5)
+    axis.plot(removed, mean, label="Mean cell count")
+    axis.fill_between(
+        removed, lower, upper, alpha=0.2, label="5th Percentile cell count"
+    )
+    axis.legend()
 
 
 def main() -> None:
@@ -113,12 +127,20 @@ def main() -> None:
     mcaf_type = args.type  # pyright: ignore[reportAttributeAccessIssue]
 
     count_path = mcaf_path / f"{mcaf_type}_{weights_name}_count.csv"
-    time_path = mcaf_path / f"{mcaf_type}_{weights_name}_time.csv"
+    mse_path = mcaf_path / f"{mcaf_type}_{weights_name}_mse.csv"
+    survived_path = mcaf_path / f"{mcaf_type}_{weights_name}_survived.csv"
 
     removed, count_data = read_data(count_path)
-    _, time_data = read_data(time_path)
+    _, mse_data = read_data(mse_path)
+    _, survived = read_data(survived_path)
 
-    plot_time(removed, time_data, mcaf_type)
+    fig = plt.figure()
+    axes = fig.subplots(nrows=2)
+    style_axis(axes[0])
+    style_axis(axes[1])
+
+    plot_time(removed, mse_data, count_data, mcaf_type, axis=axes[0])
+    plot_survived(removed, survived, mcaf_type, axis=axes[1])
     plt.show()
 
 
