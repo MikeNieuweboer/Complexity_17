@@ -15,6 +15,10 @@ are implemented:
 - Testing: Lowest fitness is achieved with all weights in the first layer being 1.
 - FullCircle: Lowest fitness is achieved when the neural ca produces a circle structure.
 
+DISCLAIMER:
+----------
+This code no longer works!, it has only been left in to show what our initial plan was.
+
 AI Usage:
 ---------
 AI was used to generate most of the doc comments for classes and functions, using the
@@ -31,7 +35,6 @@ from enum import Enum
 from itertools import product
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import nevergrad as ng
 import numpy as np
 import numpy.typing as npt
@@ -171,6 +174,22 @@ class FitnessFunctions:
 
     @staticmethod
     def lower_half(grid: npt.NDArray) -> float:
+        """Calculate fitness for a structure filling the lower half of the grid.
+
+        Evaluates how well the Neural CA produces a filled lower half from the
+        grid center. The fitness is the count of grid cells that deviate from
+        the expected block pattern.
+
+        Args:
+        ----
+            grid: A 3D numpy array representing the Neural CA grid state.
+
+        Returns:
+        -------
+            The fitness loss value (non-negative float). Lower values indicate better
+            lower half pattern formation. Returns 0 for perfect lower half block.
+
+        """
         loss = 0
         height = len(grid)
         shape = grid.shape
@@ -392,7 +411,6 @@ class EA:
         low = 64
         high = 96
 
-        # NOTE: No
         steps = int(self._gen.integers(low, high))
         grid.run_simulation(steps=steps)
         return fitness(grid.state)
