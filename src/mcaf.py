@@ -5,23 +5,29 @@ Course:      Complex System Simulation
 
 Description:
 ------------
-Allows for the calculation of the MCAF (Mean Critical Annihilation Fraction, a
-factor made up to make it feel as if something new has been invented), which
-represents the fraction of cells that need to be annihilated for total
-collapse of the system towards the empty zero state.
-These fractions can be removed from:
+Allows for the gathering of data surrounding the MCAF (Mean Critical
+Annihilation Fraction, a factor made up to make it feel as if something new
+has been invented), which represents the fraction of cells that need to be
+annihilated for total collapse of the system towards the empty zero state. These
+fractions can be removed from:
 - Random living cells.
 - A centralised blob of cells.
-- Cells with activity in a certain channel.
-- A specified channel itself.
 
+To analyse both where this dropoff happens and if there is any critical slowing
+down, the cell count after run time and the time until either the cell count or MSE
+loss has returned to normal are stored in the <data_path>/MCAF folder.
+
+AI usage:
+--------
+> Analyse the @src/mcaf.py file to allow for future doc comment generation
+
+> Generate the PEP styled doc comments
 """
 
 import argparse
 import csv
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 import torch
@@ -30,12 +36,33 @@ from tqdm import tqdm
 from grid import Grid
 from utils import data_path, load_target_image, load_weights
 
+# Uggly hardcoded global variables.
+## The amount of steps going from 0 to 100% cell removal.
 removal_iterations = 50
+## The difference in cell count to be seen as recovered.
 min_count_diff = 30
+## The difference in cell count to lose recovered state.
 max_diff_count = 100
 
 
 def loss(state: torch.Tensor, target: torch.Tensor) -> float:
+    """Compute mean-squared error between a batch state and a target image.
+
+    The function expects ``state`` to be a batched tensor where the first
+    dimension is the batch index; the function uses the first batch
+    (``state[0, :, :]``) for the comparison. ``target`` is expected to be a
+    2-D tensor with the same spatial shape as the state slice.
+
+    Args:
+    ----
+        state: Batched state tensor (B, H, W) or similar; only index 0 is used.
+        target: Target image tensor (H, W) to compare against.
+
+    Returns:
+    -------
+        Float mean-squared error between the state slice and the target.
+
+    """
     return float(torch.nn.functional.mse_loss(state[0, :, :], target).detach())
 
 
@@ -46,6 +73,34 @@ def _simulate_to_end(
     target: torch.Tensor,
     target_count: int,
 ) -> tuple[int, int]:
+    """Advance the grid until ``max_time`` and measure recovery times.
+
+    The simulation is stepped forward up to ``max_time`` iterations. Two
+    recovery metrics are recorded:
+
+    - ``mse_time``: iteration count related to when the MSE between the
+      current state and ``target`` falls below ``target_loss``.
+    - ``count_time``: iteration count related to when the absolute
+      difference between the current living-cell count and ``target_count``
+      falls below the module-level ``min_count_diff``.
+
+    Note: both return values are integers intended to represent the
+    iteration index at which the condition was observed.
+
+    Args:
+    ----
+        grid: Grid instance used to run the simulation; its state is mutated.
+        max_time: Maximum number of iterations to simulate.
+        target_loss: MSE threshold considered recovered.
+        target: Target image tensor used for MSE calculations.
+        target_count: Reference living-cell count used for count-based metric.
+
+    Returns:
+    -------
+        A tuple ``(mse_time, count_time)`` of integers describing recovery
+        times measured during the simulation.
+
+    """
     mse_time = 0
     count_time = 0
 
@@ -53,12 +108,17 @@ def _simulate_to_end(
     reached_mse = False
     reached_count = False
     iteration = 0
+
     while iteration < max_time:
         iteration += 1
+
+        # MSE based regeneration counting
         if not reached_mse:
             reached_mse = loss(state, target) < target_loss
             mse_time += 1
         diff = abs(int(torch.sum(state.detach()[0, :, :] > 0).detach()) - target_count)
+
+        # Cell count based regeneration counting
         if diff < min_count_diff:
             if not reached_count:
                 count_time = iteration
@@ -74,6 +134,21 @@ def _simulate_to_end(
 
 
 def find_start_flood(grid: Grid, gen: np.random.Generator) -> tuple[int, int]:
+    """Pick a random living cell from the grid and return its coordinates.
+
+    The returned coordinates are given in ``(row, column)`` order and are
+    selected uniformly from currently alive cells in the active batch.
+
+    Args:
+    ----
+        grid: Grid whose current batch state is queried.
+        gen: NumPy random generator used for deterministic selection.
+
+    Returns:
+    -------
+        A ``(row, column)`` tuple of integers pointing to a living cell.
+
+    """
     state = grid.batch_state.detach().squeeze(0).numpy()
     indices = np.where(state[0, :, :] > 0)
     removed_index = int(gen.choice(range(len(indices[0])), 1)[0])
@@ -82,7 +157,25 @@ def find_start_flood(grid: Grid, gen: np.random.Generator) -> tuple[int, int]:
     return (row, column)
 
 
-def flood_fill_step(queue: list[tuple[int, int]], grid: Grid, gen: np.random.Generator):
+def flood_fill_step(
+    queue: list[tuple[int, int]],
+    grid: Grid,
+    gen: np.random.Generator,
+) -> None:
+    """Perform a single flood-fill removal step on the grid.
+
+    The function mutates ``grid`` and the provided ``queue``. If ``queue`` is
+    empty a random living cell is located and used as the starting point. The
+    selected cell is set to the grid's empty state and all surrounding alive
+    neighbours are added to the queue for future removals.
+
+    Args:
+    ----
+        queue: A list acting as a stack/queue of ``(row, column)`` tuples.
+        grid: Grid instance; its pool state is modified by clearing one cell.
+        gen: NumPy random generator used when a start cell must be chosen.
+
+    """
     state = grid.pool_state.squeeze(0)
 
     if queue == []:
@@ -109,8 +202,38 @@ def flood_fill_step(queue: list[tuple[int, int]], grid: Grid, gen: np.random.Gen
 
 
 def blob_destruction(
-    grid: Grid, delay: int, max_time: int, target: torch.Tensor, *, seed: int = 43
+    grid: Grid,
+    delay: int,
+    max_time: int,
+    target: torch.Tensor,
+    *,
+    seed: int = 43,
 ) -> tuple[list[list[int]], list[list[int]], list[list[int]], npt.NDArray]:
+    """Progressively remove contiguous blobs and record recovery statistics.
+
+    A number of iterations are performed where the grid is warmed-up, a
+    contiguous region of living cells is removed using flood-fill steps and
+    the simulation is advanced to measure recovery times. Results for each
+    replication and removal fraction are collected and returned.
+
+    Args:
+    ----
+        grid: Grid instance pre-initialised with weights and size.
+        delay: Number of steps to run before the first removal (warm-up).
+        max_time: Maximum simulation steps to run after each removal.
+        target: Target image tensor used for MSE calculations.
+        seed: RNG seed to make the blob removal deterministic.
+
+    Returns:
+    -------
+        A tuple ``(mse_times, count_times, surviving_cells, removed_arr)``:
+        - ``mse_times``: list of lists of mse recovery times (per replication).
+        - ``count_times``: list of lists of count-based recovery times.
+        - ``surviving_cells``: list of lists of surviving cell counts.
+        - ``removed_arr``: 1-D numpy array with cumulative removed counts at
+          each removal step.
+
+    """
     iterations = 50
 
     mse_times = [[] for _ in range(iterations)]
@@ -118,15 +241,19 @@ def blob_destruction(
     surviving_cells = [[] for _ in range(iterations)]
 
     gen = np.random.Generator(np.random.PCG64(seed))
+    # Initialize removed_arr to satisfy static analyzers in case iterations == 0
+    removed_arr: npt.NDArray = np.array([], dtype=int)
     for i in tqdm(range(iterations)):
+        # Warm up
         grid.clear_and_seed(grid_idx=0)
         grid.set_batch([0])
         grid.load_batch_from_pool()
 
         local_state = grid.run_simulation(delay).squeeze(0)
-        target_loss = loss(grid.batch_state.squeeze(0), target) * 1.1
+        # Give 10% leeway in the MSE matching.
+        target_loss = loss(local_state, target) * 1.1
         target_count = int(
-            np.sum(grid.batch_state.detach().squeeze(0).numpy()[0, :, :] > 0)
+            np.sum(grid.batch_state.detach().squeeze(0).numpy()[0, :, :] > 0),
         )
         queue = [find_start_flood(grid, gen)]
 
@@ -151,27 +278,58 @@ def blob_destruction(
             grid.set_batch([0])
             grid.load_batch_from_pool()
             mse_time, count_time = _simulate_to_end(
-                grid, max_time, target_loss, target, target_count
+                grid,
+                max_time,
+                target_loss,
+                target,
+                target_count,
             )
             mse_times[i].append(mse_time)
             count_times[i].append(count_time)
 
             surviving_cells[i].append(
-                np.sum(grid.batch_state.detach().squeeze(0).numpy()[0, :, :] > 0)
+                np.sum(grid.batch_state.detach().squeeze(0).numpy()[0, :, :] > 0),
             )
     return mse_times, count_times, surviving_cells, removed_arr
 
 
 def random_destruction(
-    grid: Grid, delay: int, max_time: int, target: torch.Tensor, *, seed: int = 43
+    grid: Grid,
+    delay: int,
+    max_time: int,
+    target: torch.Tensor,
+    *,
+    seed: int = 43,
 ) -> tuple[list[list[int]], list[list[int]], list[list[int]], npt.NDArray]:
+    """Remove randomly-selected living cells and record recovery statistics.
+
+    The function repeatedly removes a fraction of currently alive cells at
+    random (without replacement) and measures recovery statistics for each
+    removal fraction across multiple replications.
+
+    Args:
+    ----
+        grid: Grid instance to operate on; mutated during simulation steps.
+        delay: Warm-up steps to run before starting removals.
+        max_time: Maximum number of steps to simulate after each removal.
+        target: Target image tensor used for MSE calculations.
+        seed: RNG seed for deterministic random removals.
+
+    Returns:
+    -------
+        A tuple ``(mse_times, count_times, surviving_cells, removed_arr)`` with
+        the same layout as :func:`blob_destruction`.
+
+    """
     # Warm up
     grid.clear_and_seed(grid_idx=0)
     grid.set_batch([0])
     grid.load_batch_from_pool()
     empty = grid.empty
     grid_state = grid.run_simulation(delay).squeeze(0)
-    target_loss = loss(grid.batch_state.squeeze(0), target) * 1.1
+
+    # Give 10% leeway in MSE calculation
+    target_loss = loss(grid_state, target) * 1.1
     grid.write_batch_back_to_pool()
 
     # Select cells to be deleted (which are currently alive.)
@@ -189,8 +347,9 @@ def random_destruction(
 
     gen = np.random.Generator(np.random.PCG64(seed))
     removed_arr = (np.pow(np.linspace(0, 1, removal_iterations), 2 / 3) * total).astype(
-        int
+        int,
     )
+
     for i in tqdm(range(iterations)):
         for removals in removed_arr:
             # Copy over the warmed grid to the active batch.
@@ -229,6 +388,19 @@ def random_destruction(
 
 
 def save_stats(path: Path, removed: npt.NDArray, stats: list[list[int]]):
+    """Write survival or recovery statistics to a CSV file.
+
+    The CSV will have a header row ``Removed,Iteration_1,...`` and each
+    subsequent row corresponds to a removal count and the per-replication
+    statistic for that removal level.
+
+    Args:
+        path: Filesystem path where CSV will be written (overwritten if exists).
+        removed: 1-D numpy array of removal counts for each column.
+        stats: List of per-replication lists; each inner list must have the
+            same length as ``removed``.
+
+    """
     with path.open("w", newline="") as csvfile:
         writer = csv.writer(csvfile)
 
@@ -241,7 +413,17 @@ def save_stats(path: Path, removed: npt.NDArray, stats: list[list[int]]):
             writer.writerow(row)
 
 
-def parse_args() -> argparse.ArgumentParser:
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments and return the populated namespace.
+
+    The function constructs an ArgumentParser, registers the expected
+    positional arguments and returns the result of ``parse_args()`` (an
+    ``argparse.Namespace`` instance).
+
+    Returns:
+        An ``argparse.Namespace`` containing parsed command-line values.
+
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "weights",
@@ -271,7 +453,7 @@ def parse_args() -> argparse.ArgumentParser:
         type=str,
     )
 
-    return parser.parse_args()  # pyright: ignore[reportReturnType]def main():
+    return parser.parse_args()  # pyright: ignore[reportReturnType]
 
 
 def main() -> None:
@@ -302,22 +484,35 @@ def main() -> None:
 
     if arg_type == "random":
         mse_times, count_times, surviving_cells, removed = random_destruction(
-            grid, delay, max_time, target
+            grid,
+            delay,
+            max_time,
+            target,
         )
     elif arg_type == "blob":
         mse_times, count_times, surviving_cells, removed = blob_destruction(
-            grid, delay, max_time, target
+            grid,
+            delay,
+            max_time,
+            target,
         )
     else:  # pragma: no cover
-        raise ValueError(f"Unknown arg_type: {arg_type}")
+        arg_type_error = f"Unknown arg_type: {arg_type}"
+        raise ValueError(arg_type_error)
 
     # Save results to CSV
     csv_folder = data_path / "MCAF"
     csv_folder.mkdir(parents=True, exist_ok=True)
+
+    ## Surviving cell count.
     survive_path = csv_folder / f"{arg_type}_{weight_path.stem}_survived.csv"
     save_stats(survive_path, removed, surviving_cells)
+
+    ## MSE based regeneration speed.
     survive_path = csv_folder / f"{arg_type}_{weight_path.stem}_mse.csv"
     save_stats(survive_path, removed, mse_times)
+
+    # Count based regeneration speed.
     survive_path = csv_folder / f"{arg_type}_{weight_path.stem}_count.csv"
     save_stats(survive_path, removed, count_times)
 

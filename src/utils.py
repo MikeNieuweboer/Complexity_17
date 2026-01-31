@@ -1,5 +1,8 @@
 """Provides utility functions and variables.
 
+Group:        17
+Course:       Complex System Simulation
+
 Description:
 ------------
 Provides several important project paths, such as the root, weights and data paths.
@@ -45,6 +48,7 @@ def load_weights(path: Path) -> tuple[npt.NDArray, npt.NDArray]:
             msg = f"NPZ file must contain 2 weight arrays, got {len(arrays)}"
             raise ValueError(msg)
         return tuple(arrays[:weight_count])
+
     if path.suffix == ".pt":
         # Load from PyTorch file
         state_dict = torch.load(path, weights_only=True)
@@ -58,6 +62,8 @@ def load_weights(path: Path) -> tuple[npt.NDArray, npt.NDArray]:
             msg = f"PT file must contain 2 weight tensors, got {len(weights)}"
             raise ValueError(msg)
         return (weights[0], weights[1])
+
+    # Unhandled file type
     msg = f"Unsupported file format: {path.suffix}. Expected .npz or .pt"
     raise ValueError(msg)
 
