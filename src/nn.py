@@ -1,20 +1,43 @@
 """Contains the NN class that is used as the update rule for neural cellular automata.
 
-AI usage:
----------
+Group:      17
+Course:     Complex System Simulation
+
+Description
+-----------
+An NN class that acts as an 'update rule' for Neural Cellular Automata. Class
+is initialized with the number of channels of the grid on which the NN is
+expected to act, as well as the size of the hidden layer. After initialization
+the main entrypoint is forward(), which first calls the _percieve() method to
+create a percieve vector for each cell in the grid, after which each cell's
+percieve vector is feeded through the hidden layer, ReLU and output layer
+(using 1x1 convolution) to obtain a delta state change.
+
+Additionally, one can load in weights for the hidden and output layer using
+the load_weights() method.
+
+AI usage
+--------
 Gemini 3.0 was used to generate docstrings for the functionality in this file.
 This was done for each function individually using the inline chat and the
 following prompt:
 > Analyze the specific function and create a consise docstring
 Afterwards manual changes were made to the liking of the coder.
-"""
 
+Acknowledgements
+----------------
+The ideas behind the NN class are heavily inspired by the wonderfull
+article:
+> Mordvintsev, et al., "Growing Neural Cellular Automata", Distill, 2020.
+Link: https://distill.pub/2020/growing-ca/
+
+"""
 import torch
 from torch import nn
 
 
 class NN(nn.Module):
-    """Neural network implementing the update rule for cellular automata.
+    """Neural network implementing the 'update rule' for cellular automata.
 
     Applies Sobel perception filters and neural layers to compute state deltas.
     Reference: https://distill.pub/2020/growing-ca/
@@ -50,17 +73,20 @@ class NN(nn.Module):
         nn.init.zeros_(self.output_layer.weight)
 
     def load_weights(
-        self, hidden_layer_weight: torch.Tensor, output_layer_weight: torch.Tensor
+        self, hidden_layer_weight: torch.Tensor, output_layer_weight: torch.Tensor,
     ) -> None:
         """Load and validates custom weights for the neural network layers.
 
         Args:
-            hidden_layer_weight (torch.Tensor): Tensor containing weights for the hidden layer.
-            output_layer_weight (torch.Tensor): Tensor containing weights for the output layer.
+            hidden_layer_weight (torch.Tensor): Tensor containing weights for the
+                hidden layer.
+            output_layer_weight (torch.Tensor): Tensor containing weights for the
+                output layer.
 
         Raises:
             ValueError: If the shape of either input tensor does not match the shape
                 of the corresponding layer's existing weights.
+
         """
         if hidden_layer_weight.shape != self.hidden_layer.weight.shape:
             raise ValueError(  # noqa: TRY003
@@ -87,6 +113,7 @@ class NN(nn.Module):
         Returns:
             Perception tensor of shape (B, 3*C, H, W).
             Concatenates: [Sobel_X, Sobel_Y, Identity]
+
         """
         if state_grid.dim() != 4:
             raise ValueError(f"state_grid must be 4D (B,C,H,W), got shape {tuple(state_grid.shape)}")  # noqa: TRY003
@@ -161,6 +188,7 @@ class NN(nn.Module):
 
         Returns:
             Delta tensor of shape (B, C, H, W).
+
         """
         if state_grid.dim() != 4:
             raise ValueError(f"state_grid must be 4D (B,C,H,W), got shape {tuple(state_grid.shape)}")  # noqa: TRY003

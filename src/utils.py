@@ -7,6 +7,7 @@ Description:
 ------------
 Provides several important project paths, such as the root, weights and data paths.
 Also provides functionality to load weights from either a .npz, or .pt file.
+Additionally, also contains function to convert an image to target pattern for NCA.
 """
 
 from pathlib import Path
@@ -72,12 +73,20 @@ def load_target_image(image_path: Path, grid_size: int) -> torch.Tensor:
     """Load an image, to utilize as a target for training.
 
     Process:
-    1. Opens image and converts to Grayscale ('L').
-    2. Resizes to (grid_size, grid_size).
-    3. Normalizes pixel values to [0.0, 1.0].
+        1. Opens a certain image and converts it to grayscale
+        2. Resizes it to be of the desired shape (grid_size)
+        3. Normalizes the value in the grid (0.0 - 1.0)
+        4. Inverts the values (we need black in image to be 1 in grid)
+        5. Values close to 0 (<0.1) or 1 (>0.9) are forced to be that specific
+        value, as to create uniform values within and outside of target pattern
+
+    Args:
+        image_path (Path): path to the target image.
+        grid_size (int): size of the grid to which the image is
+            to be converted.
 
     Returns:
-        torch.Tensor: A tensor of shape (H, W) on the specified device.
+        torch.Tensor: A tensor of shape (H, W).
 
     """
     if not image_path.exists():
@@ -99,7 +108,6 @@ def load_target_image(image_path: Path, grid_size: int) -> torch.Tensor:
     target_data[target_data > 0.9] = 1
     target_data[target_data < 0.1] = 0
 
-    # Optional: Hard threshold to make it strictly black/white (binary)
     return torch.from_numpy(target_data)
 
 
