@@ -9,6 +9,33 @@ This file will outline the use of GenAI in this project. For each relevant file 
     - Remarks
 
 ## Entries
+- ea.py <src/ea.py>
+    - Use of GenAI
+        - Haiku 4.5 was used to generate docstrings for the functionality in this file
+        - __Prompt:__ Analyse the functionality of @src/ea.py, assuming that the rest of the codebase is implemented and write the required docstrings for the classes and functions within.
+        - Afterwards manual changes were made to the liking of the coder.
+    - Remarks
+        - Read everything to be sure the correct comments were generated, but it looked good to me.
+
+- mcaf.py <src/mcaf.py>
+    - Use of GenAI
+        - Haiku 4.5 was used to generate docstrings for the functionality in this file
+        - __Prompt:__
+            - Analyse the @src/mcaf.py file to allow for future doc comment generation.
+            - Generate the PEP styled doc comments.
+        - Afterwards manual changes were made to the liking of the coder.
+    - Remarks
+        - Read everything to be sure the correct comments were generated, but it looked good to me.
+
+- plot_mcaf.py <src/plot_mcaf.py>
+    - Use of GenAI
+        - Haiku 4.5 was used to generate docstrings for the functionality in this file
+        - __Prompt:__
+            - Analyse the @src/plot_mcaf.py file and try to understand its structure for future doc comment generation.
+            - Generate the PEP style comment.
+        - Afterwards manual changes were made to the liking of the coder.
+    - Remarks
+        - Read everything to be sure the correct comments were generated, but it looked good to me.
 
 - nn.py <src/nn.py>
     - Use of GenAI
