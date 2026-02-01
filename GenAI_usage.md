@@ -61,7 +61,7 @@ This file will outline the use of GenAI in this project. For each relevant file 
     - Remarks
         - The importance of manually reading the generated docstrings was stressed, because the generated docstring for the train() function contained some examples that were not applicable to our use case. One example was that in the description of the n_channels argument it gave as an example (RGBA + hidden), whereas for our project we only have (alpha + hidden).
 
-- grid.py <src/train.py>
+- grid.py <src/grid.py>
     - Use of GenAI
         - ChatGPT 5.2 was used to generate docstrings for the functionality in this file. This was done for the whole file in one prompt.
         - __Prompt:__ Add a docstring for each function.
@@ -71,3 +71,13 @@ This file will outline the use of GenAI in this project. For each relevant file 
         - __Prompt:__ Add a sanity check to this function that checks [x].
     - Remarks
         - None
+
+- ui_with_grid.py <src/ui_with_grid.py>
+    - Use of GenAI
+        - ChatGPT 5.2 was used to generate the "get_filled_circle_coordinates" function.
+        - ___Prompt:__ i would like a function which returns all the coordinates of the gridpoints in a np.ndarray in a circle with radius r around a specific coordinate which i provide trough row and column coordinates. 
+        - this worked correctly only this gave only the coordinates directly on the edge of the circle so we specified our needs with a supplementary prompt
+        - __Prompt:__ please modify the prevous function to give all coordinates of a filled in circle, instead of only the values on the edge.
+        
+    - remaks
+        -worked prettymuch exactly as expected
