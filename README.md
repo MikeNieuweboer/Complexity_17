@@ -63,7 +63,34 @@ The UI allows for varying methods of measurment/analysis:
 1. visual analysis of the effects of layers on the whole(shape) through the "show hidden layers" button.
 2. implementing and adding your own analysis tool (for example real time spacial entropy or langtons parameter calculations) - after defining your analysis function this can be added to the UI by adding it to the "analysis_tool" dictionary with structure: {Key (Name of the tool as shown in the combobox) : Value  (A function that takes the current grid as input and returns a float or string to be displayed in the analysis tool label.)}
 
+## 4.2. Example Usage (Training)
+The training script (`src/train.py`) trains an NCA update rule (`NN`) to grow toward a target pattern using backpropagation and a persistent pool of grid states. Each iteration samples a random batch from the pool, optionally damages the best-performing samples to encourage robustness, reseeds the worst sample, evolves the batch for a random number of steps, computes MSE loss on the alpha channel, and updates the network weights.
 
+Configuration:
+Training settings are currently adjusted in `main()` inside `src/train.py` (e.g., `target_pattern`, number of iterations, step range, learning rate, pool/batch size, and damage settings). To train on a custom image target, place it in `data/targets/` and update the `load_target_image(...)` path in `main()`.
+
+Run training:
+```bash
+uv run src/train.py
+```
+
+Outputs:
+- A timestamped folder is created in `training/` containing `loss.csv` and optional plotted figures (if `plot_steps` is enabled).
+- Whenever a new best model is found, the weights are saved to `weights/` (filename includes grid size, channels, hidden size, and timestamp).
+
+
+
+## 4.3. Example Usage (Grid API)
+The `Grid` class (`src/grid.py`) stores a pool of grid states and evolves a selected batch of them efficiently on GPU.
+
+Typical usage:
+1) `grid = Grid(...)`
+2) `grid.set_batch([...pool indices...])`
+3) `grid.load_batch_from_pool()`
+4) `grid.run_simulation_batch(steps, update_prob, masking_th)`
+5) `grid.write_batch_back_to_pool()`
+
+Each grid state has shape `(C, H, W)` and the batch has shape `(B, C, H, W)`. `update_prob` controls stochastic cell updates, and `masking_th` controls the alive mask threshold based on the alpha channel.
 
 
 # 5. References

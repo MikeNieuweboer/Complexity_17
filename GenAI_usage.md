@@ -40,7 +40,7 @@ This file will outline the use of GenAI in this project. For each relevant file 
 - nn.py <src/nn.py>
     - Use of GenAI
         - Gemini 3.0 was used to generate docstrings for the functionality in this file. This was done for each function individually using the inline chat. 
-        - __Prompt:__ Analyze the specific function and create a consise docstring
+        - __Prompt:__ Analyze the specific function and create a concise docstring
         - Afterwards manual changes were made to the liking of the coder.
     - Remarks
         - None
@@ -48,7 +48,7 @@ This file will outline the use of GenAI in this project. For each relevant file 
 - plotting.py <src/plotting.py>
     - Use of GenAI
         - Gemini 3.0 was used to generate docstrings for the functionality in this file. This was done for each function individually using the inline chat. 
-        - __Prompt:__ Analyze the specific function and create a consise docstring
+        - __Prompt:__ Analyze the specific function and create a concise docstring
         - Afterwards manual changes were made to the liking of the coder.
     - Remarks
         - None
@@ -56,7 +56,18 @@ This file will outline the use of GenAI in this project. For each relevant file 
 - train.py <src/train.py>
     - Use of GenAI
         - Gemini 3.0 was used to generate docstrings for the functionality in this file. This was done for each function individually using the inline chat. 
-        - __Prompt:__ Analyze the specific function and create a consise docstring
+        - __Prompt:__ Analyze the specific function and create a concise docstring
         - Afterwards manual changes were made to the liking of the coder.
     - Remarks
         - The importance of manually reading the generated docstrings was stressed, because the generated docstring for the train() function contained some examples that were not applicable to our use case. One example was that in the description of the n_channels argument it gave as an example (RGBA + hidden), whereas for our project we only have (alpha + hidden).
+
+- grid.py <src/train.py>
+    - Use of GenAI
+        - ChatGPT 5.2 was used to generate docstrings for the functionality in this file. This was done for the whole file in one prompt.
+        - __Prompt:__ Add a docstring for each function.
+        - Afterwards manual changes were made to the liking of the coder.
+
+        - ChatGPT 5.2 was used to generate sanity checks for functions where its functionality depends on previous function calls.
+        - __Prompt:__ Add a sanity check to this function that checks [x].
+    - Remarks
+        - None
