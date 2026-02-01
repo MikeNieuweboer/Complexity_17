@@ -50,16 +50,14 @@ class ToolBar(QtWidgets.QWidget):
         self._parent = parent
         self.grid = None
 
-        # setting up buttons
 
+        # setting up buttons
         combobox_items = [
             "",
             *(list(analysis_tool.keys()) if analysis_tool is not None else []),
         ]
         self.show_hide_hidden_layers_button = QtWidgets.QPushButton("Show Hidden Layers")
         self.show_hide_hidden_layers_button.setCheckable(True)
-        
-        
         
         self.analysis_tool = QtWidgets.QComboBox()
         self.analysis_tool.addItems(combobox_items)
@@ -93,7 +91,6 @@ class ToolBar(QtWidgets.QWidget):
         self.erase_slider.valueChanged.connect(self._change_erase_size)
         self.file_picker.clicked.connect(self._open_weight_picker)
         self.show_hide_hidden_layers_button.toggled.connect(self.show_hidden_layers_requested)
-        # self.analysis_tool.currentTextChanged.connect(self.update_analysis_tool_label)
 
         # vertical layout of the toolbar buttons and sliders
         layout = QtWidgets.QVBoxLayout()
@@ -112,14 +109,17 @@ class ToolBar(QtWidgets.QWidget):
         self.setLayout(layout)
 
     def _change_sim_speed(self, value: float) -> None:
+        """Emits simulation speed value as signal to change sim speed"""
         self.speed_label.setText(f"Simulation Speed: {value}")
         self.sim_speed_requested.emit(value)
 
     def _change_erase_size(self, value: int) -> None:
+        """Emits erase slider value as signal to change erase size"""
         self.erase_label.setText(f"Erase Size: {value}")
         self.erase_size_requested.emit(value)
 
     def _open_weight_picker(self) -> None:
+        """Opens files to pick weight, on picked weight file emits weights"""
         dialog = QtWidgets.QFileDialog()
         dialog.setNameFilter("(*.npz *.pt)")
         if dialog.exec():
@@ -135,6 +135,8 @@ class ToolBar(QtWidgets.QWidget):
                 self.on_new_weights.emit((arrays[0], arrays[1]))
 
     def _play_pause_toggled(self, checked: bool) -> None:  # noqa: FBT001
+        """Emits bool which represents wether the simulation should run"""
+        
         if checked:
             self.playpause_button.setText("Pause")
         else:
@@ -142,12 +144,16 @@ class ToolBar(QtWidgets.QWidget):
         self.update_toggle.emit(checked)
 
     def _step_clicked(self) -> None:
+        """Emits True when step button is pressed"""
         self.step_requested.emit(True)  # noqa: FBT003
 
     def _reset_clicked(self) -> None:
+        """emits True when reset button is pressed"""
         self.reset_requested.emit(True)  # noqa: FBT003
 
     def update_analysis_tool_label(self, text: str) -> None:
+        """Updates the text below the analysis tool QCombobox, represents the value
+        of the wanted analysis at that simulation step."""
         grid = self._parent.grid
         if text == "":
             self.analysis_tool_label.setText("^ choose analysis tool")
@@ -160,11 +166,7 @@ class ToolBar(QtWidgets.QWidget):
 
 
 class MainWindow(QtWidgets.QWidget):
-    """Creates the main window.
-
-    next_step_function:
-        REQUIRES a next_step_function for which it inputs the current grid and
-        expects the updated grid to be returned.
+    """Creates the main UI window, also handles the grid <-> UI interactions.
 
     analysis_tool dictionary:
         A dictionary of analysis tools to be used in the toolbar.
@@ -179,7 +181,6 @@ class MainWindow(QtWidgets.QWidget):
         next_step_function: Callable | None = None,
         analysis_tool: dict[str, Callable[[npt.NDArray], Any]] | None = None,
     ) -> None:
-        # TODO num channels?
         self.grid = Grid(
             poolsize=1,
             batch_size=1,
@@ -195,6 +196,8 @@ class MainWindow(QtWidgets.QWidget):
         self.next_step_function = next_step_function
         self.speed = 1
         self.erase_size = 1
+
+        # initializing gridview, hiddengridlayers, and the toolbar 
         super().__init__()
         self.grid_view = GridView(self.grid)
         self.hidden_layers = HiddenGridLayers(self.grid, hidden_layer_count=self.grid._num_channels)
@@ -223,12 +226,14 @@ class MainWindow(QtWidgets.QWidget):
         self.toolbar.reset_requested.connect(self._reset_grid)
         self.toolbar.on_new_weights.connect(self._set_weights)
         self.toolbar.show_hidden_layers_requested.connect(self._show_hide_hidden_layers)   
+        
         # window settings
         self.setWindowTitle("Evolution simulator")
         self.resize(600, 600)
 
-    # TODO
     def step_simulation(self) -> None:
+        """Calls the step function from Grid, 
+        afterwards updates visual widgets to represent new state"""
         if self.next_step_function is None:
             try:
                 self.grid.simulate_simple()
@@ -246,18 +251,23 @@ class MainWindow(QtWidgets.QWidget):
 
 
     def _show_hide_hidden_layers(self, checked: bool): 
+        """shows or hides hidden layers(non alive) of tensor array depending on 
+        wether the show hidden states button is checked """
         if checked:
             self.hidden_layers.show()
         else:
             self.hidden_layers.hide()
 
     def _on_play_toggled(self, checked: bool):  # noqa: FBT001
+        """starts or stops the internal timer which calls a 
+        simulation step every 1-1000 ms(depending on sim speed)"""
         if checked:
             self.timer.start()
         else:
             self.timer.stop()
 
     def _set_weights(self, weights: tuple[npt.NDArray, ...]) -> None:
+        """sets weights of the neural network (NN) this NN is the 'rule table' for each CA cell """
         num_channels = weights[1].shape[1]
         self.grid = Grid(
             poolsize=1,
@@ -274,25 +284,41 @@ class MainWindow(QtWidgets.QWidget):
         self.hidden_layers.rebuild(self.grid)
 
     def _set_sim_speed(self, speed: int) -> None:
+        """sets sim speed by deviding 1000(ms) by the in UI inputted speed"""
         self.speed = speed
         self.timer.setInterval(1000 // self.speed)
 
     def _set_erase_size(self, size: int) -> None:
+        """sets erase size"""
         self.erase_size = size
 
     def _create_function(self, row: int, col: int) -> None:
+        """when called sets all layers of the simulation tensor to 1 
+        on the coordinates(row, col) on which the user mouse is at that moment
+        
+        if interested one can set the cell_np[:] = 1.0 to a slice to set only 
+        those layers to one ex. cell_np[1:2]=1.0 if you want to create on only 
+        the layer with index 1
+        """
         grid_idx = 0
         x, y = col, row
 
         cell_np = self.grid.pool_state[grid_idx, :, y, x].copy()
         cell_np[:] = 1.0
-        
 
         cell_t = torch.from_numpy(cell_np)
         self.grid.set_cell_state(grid_idx, x, y, cell_t)
         self.grid_view.update_grid(self.grid.pool_state[0][0])
 
     def _erase_function(self, row: int, col: int) -> None:
+        """when called sets all layers of the simulation tensor to 0 
+        on the coordinates(row, col) and the cells surrounding (with radius r) 
+        on which the user mouse is at that moment
+        
+        if interested one can set the cell_np[:] = 0.0 to a slice to set only 
+        those layers to zero, ex. cell_np[1:2]=0.0 if you want to erase on only 
+        the layer with index 1
+        """
         grid_idx = 0
 
         coords = get_filled_circle_coordinates(row, col, self.erase_size)
@@ -311,18 +337,17 @@ class MainWindow(QtWidgets.QWidget):
         self.grid_view.update_grid(self.grid.pool_state[0][0])
 
     def _reset_grid(self) -> None:
+        """resets grid to all zero except for the cells in the centre which get set to 1.0"""
         self.grid.clear_and_seed(grid_idx=0)
         self.grid_view.update_grid(self.grid.pool_state[0][0])
         self.toolbar.update_analysis_tool_label(
             self.toolbar.analysis_tool.currentText(),
         )
 
-    # def get_grid(self) -> Grid:
-    #     return self.grid
-
-
 class GridView(FigureCanvas):
-    """The visualisation "widget" of the grid."""
+    """The visualisation widget showing the current state of the alpha layer the Grid.
+    
+    also has logic to allow the user to erase and create by clicking with their mouse"""
 
     # signals for mouse interactions
     erase_signal = QtCore.pyqtSignal(int, int)
@@ -356,19 +381,22 @@ class GridView(FigureCanvas):
         self.mpl_connect("motion_notify_event", self.draw_cells)
 
     def update_grid(self, new_state: npt.NDArray) -> None:
+        """updates the GridView grid my making the new_state its visualised grid"""
         self.current_state = new_state
         self.im.set_data(self.current_state)
         self.draw_idle()
 
     def draw_cells(self, event: MouseEvent) -> None:
+        """handles the creating and erasion signal, emits the current mouse coordinates
+        which are used in MainWindow to create/erase from the Grid"""
         if event.inaxes != self.ax:
             return
 
         if event.xdata is None or event.ydata is None:
             return
 
-        row = int(event.ydata + 0.5)
-        col = int(event.xdata + 0.5)
+        row = int(event.ydata + 0.5) # for some reason there is a 0.5 griddistance offset  
+        col = int(event.xdata + 0.5) # these account for that offset
 
         height, width = self.grid.shape
         if 0 <= row < height and 0 <= col < width:
@@ -379,7 +407,8 @@ class GridView(FigureCanvas):
                 self.erase_signal.emit(row, col)
 
 class HiddenGridLayers(FigureCanvas):
-    """The visualisation "widget" of the hidden layers of the grid."""
+    """The visualisation widget of all the layers of the grid. main goal is to show the
+    (hidden) layers of the grid and not only the alpha (alive) layer"""
 
     def __init__(self, grid: Grid, hidden_layer_count = None):
         if hidden_layer_count is None:
@@ -395,7 +424,7 @@ class HiddenGridLayers(FigureCanvas):
         self.images = []
         self.axes = []
 
-
+        #add up to 9 subplots
         for i in range(self.hidden_layer_count):
             ax = self.fig.add_subplot(3, 3, i+1)
             ax.set_xticks([])
@@ -403,30 +432,35 @@ class HiddenGridLayers(FigureCanvas):
             self.axes.append(ax)
 
         self.current_state = grid.pool_state[0,:,:,:]
-    
+
+        #setup of images
         for i in range(self.hidden_layer_count):
-            # TODO(sijmen): add combobox for person to change view to be drawn
-            # colormap setup
             im = self.axes[i].imshow(
                 self.current_state[i,:,:],
                 cmap="viridis",
                 origin="upper",
                 interpolation="nearest",
             )
-
             self.images.append(im)
+        
+        #window settings
         self.fig.tight_layout()
         self.setMinimumSize(QtCore.QSize(500, 500))
 
     def rebuild(self, grid) -> None:
+        """rebuilds all plots since some Grids have fewer layers 
+        allows for varying layersizes to still work"""
         self.grid = grid
 
+        #clearing grid from previous plots
         self.fig.clf()
         self.images.clear()
         self.axes.clear()
 
+        #updating layer count
         self.hidden_layer_count = self.grid._num_channels
 
+        #setting up up to 9 subplots
         for i in range(self.hidden_layer_count):
             ax = self.fig.add_subplot(3, 3, i+1)
             ax.set_xticks([])
@@ -434,9 +468,9 @@ class HiddenGridLayers(FigureCanvas):
             self.axes.append(ax)
 
         self.current_state = self.grid.pool_state[0]
-        for i in range(self.hidden_layer_count):
 
-            # colormap setup
+        #setting up up to 9 images
+        for i in range(self.hidden_layer_count):
             im = self.axes[i].imshow(
                 self.current_state[i,:,:],
                 cmap="viridis",
@@ -448,6 +482,7 @@ class HiddenGridLayers(FigureCanvas):
         self.draw_idle()
 
     def update_layers(self, new_state: npt.array) -> None:
+        """updates the visualisations of all layers in HiddenGridLayers"""
         for i in range(self.hidden_layer_count):
             self.current_state = new_state[i,:,:]
             self.images[i].set_data(self.current_state)
@@ -490,24 +525,16 @@ def get_filled_circle_coordinates(
                 coordinates.append((row, col))
     return coordinates
 
-
-# TODO
-def test_CA(grid_state: npt.NDArray) -> npt.NDArray:
-    # testing a simple CA update rule
-    new_grid = np.copy(grid_state)
-    (height, width) = new_grid.shape
-    for j in range(width):
-        for i in range(height):
-            if any(grid_state[i - 1 : i + 2, j]) or any(grid_state[i, j - 1 : j + 2]):
-                new_grid[i, j] = 1
-    return new_grid
-
 def filled_calculator(grid:np.ndarray) -> float:
+    """example real-time analysis tool"""
     return np.sum(grid) / (grid.shape[0] * grid.shape[1])
 
-if __name__ == "__main__":
+def main():
     analysis_tool = {"Filled Calculator": filled_calculator}
     app = QtWidgets.QApplication(sys.argv)
     w = MainWindow(analysis_tool=analysis_tool)
     w.show()
     app.exec()
+
+if __name__ == "__main__":
+    main()
