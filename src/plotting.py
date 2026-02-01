@@ -131,4 +131,40 @@ def animate_heatmaps(tens: torch.Tensor,
     plt.close(fig)
 
 if __name__ == "__main__":
-    pass
+    from grid import Grid
+    from nn import NN
+
+    # creating star animation in data directory
+    root_dir = Path(__file__).parent.parent
+    weights_dir = root_dir / "weights"
+    best_weights_path = weights_dir / "Gr50-Ch8-Hi64_star.pt"
+
+    data_dir = root_dir / "data"
+    data_dir.mkdir(exist_ok=True, parents=True)
+
+    device = torch.device("gpu" if torch.cuda.is_available() else "cpu")
+
+    # setup testing
+    grid = Grid(
+        poolsize=1,
+        batch_size=1,
+        num_channels=8,
+        width=50,
+        height=50,
+        device=device,
+    )
+    grid.NN = NN(8, 64).to(device)
+    weights = torch.load(best_weights_path, map_location=device)
+    grid.set_weights_on_nn_from_tens(weights)
+
+    # load batch, reseed and run
+    grid.set_batch(list(range(1)))
+    grid.load_batch_from_pool()
+    grid.clear_and_seed(grid_idx=torch.arange(1, device=device), in_batch=True)
+    states = grid.run_simulation(75, record_history=True)
+
+    # testing plots
+    animate_heatmaps(states.detach().squeeze(1).permute(0, 2, 3, 1),
+                     data_dir / "star_anim.mp4",
+                     "Channel",
+                     None)
