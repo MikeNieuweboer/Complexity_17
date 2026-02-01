@@ -79,5 +79,5 @@ This file will outline the use of GenAI in this project. For each relevant file 
         - this worked correctly only this gave only the coordinates directly on the edge of the circle so we specified our needs with a supplementary prompt
         - __Prompt:__ please modify the prevous function to give all coordinates of a filled in circle, instead of only the values on the edge.
         
-    - remaks
-        -worked prettymuch exactly as expected
+    - Remarks
+        - worked pretty much exactly as expected
