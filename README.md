@@ -1,5 +1,5 @@
 # 1. Complexity_17
-Group assignment of group 17 for the 2026 Complexity course at the University of Amsterdam. The main topic explored is the training of Neural Cellular Automata (NCA) and testing their resilience against perturbations
+Group assignment of group 17 for the 2026 Complexity course at the University of Amsterdam. The main topic explored is the training of Neural Cellular Automata (NCA), their capacity for emergence of complex shapes, and testing their resilience against perturbations
 
 # 2. Project Description
 This project sought to use Neural Cellular Automata (NCA) to study self-organization of cells containing the same “instructions” (DNA/neural network). The main focus was on seeing if individual cells can spatialy organize themselves into some complex predefined pattern, much like cell differentiation in living beings. To generate the 'instructions' we initially tried using an Evolutionary Algorithm, however due to undesired results and the limited time frame of this project (2 weeks), we pivotted to using backpropagation and the updating-scheme described by Morsidiv et. al., (2020).
@@ -58,6 +58,10 @@ https://github.com/user-attachments/assets/0dfb7f9e-df98-4bb9-80d8-43914bcf99f3
 Interacting in real time with grid can be done in two ways:
 1. Erasing real time using left-mouse click on grid and dragging
 2. Seeding real time using right-mouse click on grid and dragging
+
+The UI allows for varying methods of measurment/analysis:
+1. visual analysis of the effects of layers on the whole(shape) through the "show hidden layers" button.
+2. implementing and adding your own analysis tool (for example real time spacial entropy or langtons parameter calculations) - after defining your analysis function this can be added to the UI by adding it to the "analysis_tool" dictionary with structure: {Key (Name of the tool as shown in the combobox) : Value  (A function that takes the current grid as input and returns a float or string to be displayed in the analysis tool label.)}
 
 
 
